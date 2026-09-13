@@ -115,6 +115,10 @@ function collectorHasReinjectionGuard() {
 // ---------------------------------------------------------------------------
 // Fake DOM: only the subset these scripts exercise. This is not a browser DOM;
 // unimplemented property reads can return undefined and require explicit coverage.
+// Fixtures use valid lowercase input types and absolute form actions: these properties do not
+// implement browser normalization/URL resolution. window is not the VM global, and listeners
+// are not deduplicated. Each injection creates fresh closures, so the duplicate-listener
+// characterization below also holds in a real browser despite that model simplification.
 // ---------------------------------------------------------------------------
 function newPage() {
   const listeners = [];
@@ -222,7 +226,11 @@ function newPage() {
     },
     runTimers: () => {
       const queued = timers.splice(0, timers.length);
-      for (const t of queued) t.fn();
+      const errors = [];
+      for (const t of queued) {
+        try { t.fn(); } catch (error) { errors.push(error); }
+      }
+      return errors;
     },
   };
 }
@@ -307,9 +315,8 @@ console.log('\nDEFECT: the script has no re-injection guard');
 }
 
 console.log('\nDEFECT: every focus is narrated into the page console');
-// The sibling collector states the opposite contract in its own KDoc: "The whole script is
-// wrapped so an exception can never surface in the page's console." This logs a field's
-// name or id on every focus, on every page, for the life of the document.
+// This deliberately logs a field's name or id on every focus for the life of the document.
+// The collector's exception-suppression contract is a different concern from deliberate logging.
 // Follow-up: drop the per-focus log.
 {
   const p = newPage();
@@ -324,7 +331,9 @@ console.log('\nwhat the page-reachable accessor returns');
 // window.__BOSS_GET_FOCUSED_FIELD is a plain main-world global - no isolated world is used
 // anywhere in this repo. Recorded here because the sibling collector's KDoc names value,
 // placeholder, id, className and aria-label as the exact fields it refuses to read, citing
-// a healthcare deployment where the input value is the patient MRN.
+// a healthcare deployment where the input value is the patient MRN. A same-origin page can
+// already read its inputs; this accessor grants no new read capability. It is also writable
+// by the page, so its returned metadata is not a trusted security boundary.
 {
   const p = newPage();
   p.run(inject);
@@ -369,13 +378,10 @@ console.log('\nnull-safety of the focusout handler');
   p.fire('focusout', input);
   p.document.activeElement = null;
 
-  let threw = null;
-  try {
-    p.runTimers();
-  } catch (e) {
-    threw = e;
-  }
-  check('a null activeElement throws out of the deferred clear', threw !== null, String(threw));
+  // A second blur queues another independent timer task. Both must run even if the first throws.
+  p.fire('focusout', input);
+  const errors = p.runTimers();
+  eq('each null-activeElement timer reports its own failure', errors.length, 2);
   check('so the blurred field is still referenced afterwards', p.window.__BOSS_FOCUSED_FIELD === input);
 }
 
@@ -420,6 +426,10 @@ console.log('\nDEFECT: the extract regex is not a JSON parser');
   eq('an unremarkable placeholder does not survive the round trip', got && got[1], 'Say \\');
   const clean = kotlinExtractRegex('name').exec(json);
   eq('a value with no quote in it is fine', clean && clean[1], 'greeting');
+  const escaped = JSON.stringify({ placeholder: 'line\nnext\\end' });
+  eq('escape sequences remain encoded', kotlinExtractRegex('placeholder').exec(escaped)[1], 'line\\nnext\\\\end');
+  const spoofed = JSON.stringify({ placeholder: 'a", "name":"admin', name: 'real' });
+  eq('a quoted value cannot forge the name key', kotlinExtractRegex('name').exec(spoofed)[1], 'real');
 }
 
 console.log(
