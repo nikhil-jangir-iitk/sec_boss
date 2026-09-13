@@ -4,17 +4,17 @@
  *
  * FormFieldDetector is JavaScript living inside a Kotlin string, and unlike the interaction
  * collector it has no Kotlin test at all - so nothing currently reads it, by grep or by
- * execution. It is injected into every frame of every page from
+ * execution. It is injected into the main frame by
  * BrowserHandleImpl.injectPageHelpers, so what it does on a page is not a detail.
  *
- * This runs both of its scripts and pins what they DO. Three of the checks below are
+ * This runs both of its scripts and pins what they DO. Four of the checks below are
  * defects rather than desired behaviour; each is marked and names the follow-up. They are
  * pinned rather than fixed here so that the fix is a reviewable diff against a known state
  * instead of an unmeasured claim.
  *
  * It also closes a coupling the Kotlin side cannot see: the injected script emits nine keys
  * and parseFieldInfoJson picks them back out with one hand-written regex per key, across two
- * files and two languages. A rename on either side does not fail - it silently yields "" for
+ * languages in the same file. A rename on either side does not fail - it silently yields "" for
  * that field forever. Both key sets are read from source here and compared.
  *
  * Usage: node scripts/test/test-form-field-detector.js
@@ -113,7 +113,8 @@ function collectorHasReinjectionGuard() {
 }
 
 // ---------------------------------------------------------------------------
-// Fake DOM: only what these two scripts touch, so an added DOM read fails loudly.
+// Fake DOM: only the subset these scripts exercise. This is not a browser DOM;
+// unimplemented property reads can return undefined and require explicit coverage.
 // ---------------------------------------------------------------------------
 function newPage() {
   const listeners = [];
@@ -128,7 +129,7 @@ function newPage() {
       parentElement: null,
       _attrs: { ...attrs },
       get type() {
-        return node._attrs.type;
+        return node.tagName === 'TEXTAREA' ? 'textarea' : (node._attrs.type || 'text');
       },
       get name() {
         return node._attrs.name;
@@ -256,6 +257,30 @@ console.log('\nfocus tracking');
   check('focusin on a non-field leaves the previous field in place', p.window.__BOSS_FOCUSED_FIELD === input);
 }
 
+console.log('\nnormal focus transitions');
+{
+  const p = newPage();
+  p.run(inject);
+  const input = p.el('input');
+  const textarea = p.el('textarea');
+  p.document.activeElement = input;
+  check('accessor falls back to the active input before focusin', p.window.__BOSS_GET_FOCUSED_FIELD().type === 'text');
+  p.fire('focusin', input);
+  p.fire('focusout', input);
+  eq('blur schedules the context-menu grace period', p.timers.map((t) => t.ms), [500]);
+  check('blur retains the field until the timer runs', p.window.__BOSS_FOCUSED_FIELD === input);
+  p.document.activeElement = textarea;
+  p.fire('focusin', textarea);
+  p.runTimers();
+  check('the old blur timer preserves the newly focused textarea', p.window.__BOSS_FOCUSED_FIELD === textarea);
+  eq('focused textarea reports its DOM type', p.window.__BOSS_GET_FOCUSED_FIELD().type, 'textarea');
+  p.fire('focusout', textarea);
+  p.document.activeElement = p.document._root;
+  p.runTimers();
+  check('blur to the body clears the retained field', p.window.__BOSS_FOCUSED_FIELD === null);
+  eq('accessor returns null when no field is focused', p.window.__BOSS_GET_FOCUSED_FIELD(), null);
+}
+
 console.log('\nDEFECT: the script has no re-injection guard');
 // The host re-runs injectPageHelpers on every main-frame NavigationFinished, and for a
 // single-page app that is a route change WITHIN one document - so the same document accrues
@@ -369,7 +394,7 @@ console.log('\nthe enumeration script returns rows');
   const rows = p.run(enumerate);
   eq('every input and textarea is reported', rows.length, 3);
   eq('names, in document order', rows.map((r) => r.name), ['user', 'pwd', 'notes']);
-  eq('a textarea reports the default type', rows[2].type, 'text');
+  eq('a textarea retains its browser DOM type', rows[2].type, 'textarea');
 }
 
 console.log('\ncross-language key coupling');

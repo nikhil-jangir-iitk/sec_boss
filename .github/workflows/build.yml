@@ -119,9 +119,9 @@ jobs:
       - name: 🧪 Form field detector
         # FormFieldDetector is JavaScript inside a Kotlin string too, and it is the one with
         # no Kotlin test at all - so until now nothing read it, by grep or by execution, while
-        # it was injected into every frame of every page. This runs both of its scripts against
+        # it was injected into the main frame. This runs both of its scripts against
         # a fake DOM. It also pins the keys the script emits against the ones parseFieldInfoJson
-        # picks back out: those are hand-matched across two files and two languages, and a
+        # picks back out: those are hand-matched across two languages in one file, and a
         # rename on either side does not fail, it silently yields an empty string for that
         # field forever.
         run: node scripts/test/test-form-field-detector.js
