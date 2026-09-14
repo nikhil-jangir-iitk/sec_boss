@@ -115,11 +115,13 @@ object LogSanitizer {
         if (uri.isNullOrBlank()) return "[empty]"
 
         return try {
-            // Handle both query params (?) and fragment params (#)
-            var result = uri
+            // Redact any credential carried in the authority (scheme://user:password@host)
+            // before masking query/fragment params. Handle both query params (?) and fragment (#).
+            var result = redactUserInfo(uri)
 
-            // Mask query parameters
-            val queryStart = uri.indexOf('?')
+            // Mask query parameters. Indices are read off `result`, not the original `uri`,
+            // because redactUserInfo above can change the string's length.
+            val queryStart = result.indexOf('?')
             if (queryStart >= 0) {
                 result = maskParamsInSegment(result, queryStart + 1, '#', sensitiveUriParamNames)
             }
@@ -134,6 +136,37 @@ object LogSanitizer {
         } catch (e: Exception) {
             logger.warn("URI masking failed: ${e.message}")
             "[uri-mask-error]"
+        }
+    }
+
+    /**
+     * Redact the userinfo component of a URL: `scheme://user:password@host` becomes
+     * `scheme://[REDACTED]@host`. A credential is routinely carried there - a private HTTPS clone
+     * URL is `https://x-access-token:<token>@github.com/...` - and [maskUriParams] used to return
+     * it verbatim, since it masked only query and fragment parameters.
+     *
+     * Only an `@` inside the authority is a userinfo delimiter: the authority ends at the first
+     * `/`, `?` or `#` after `://`, so an `@` in a path (`/@handle`) or a query value (an email) is
+     * left alone, and a URL with no `://` (a `mailto:` address) is returned unchanged. The scheme,
+     * host, port and path are preserved.
+     */
+    private fun redactUserInfo(uri: String): String {
+        val schemeEnd = uri.indexOf("://")
+        if (schemeEnd < 0) return uri
+        val authorityStart = schemeEnd + 3
+        var authorityEnd = uri.length
+        for (i in authorityStart until uri.length) {
+            val c = uri[i]
+            if (c == '/' || c == '?' || c == '#') {
+                authorityEnd = i
+                break
+            }
+        }
+        val at = uri.lastIndexOf('@', authorityEnd - 1)
+        return if (at < authorityStart) {
+            uri
+        } else {
+            uri.substring(0, authorityStart) + "[REDACTED]" + uri.substring(at)
         }
     }
 
