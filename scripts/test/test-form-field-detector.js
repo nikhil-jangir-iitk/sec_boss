@@ -279,12 +279,12 @@ console.log('\nnormal focus transitions');
   check('blur retains the field until the timer runs', p.window.__BOSS_FOCUSED_FIELD === input);
   p.document.activeElement = textarea;
   p.fire('focusin', textarea);
-  p.runTimers();
+  eq('focus-transfer timer completes without errors', p.runTimers(), []);
   check('the old blur timer preserves the newly focused textarea', p.window.__BOSS_FOCUSED_FIELD === textarea);
   eq('focused textarea reports its DOM type', p.window.__BOSS_GET_FOCUSED_FIELD().type, 'textarea');
   p.fire('focusout', textarea);
   p.document.activeElement = p.document._root;
-  p.runTimers();
+  eq('blur-to-body timer completes without errors', p.runTimers(), []);
   check('blur to the body clears the retained field', p.window.__BOSS_FOCUSED_FIELD === null);
   eq('accessor returns null when no field is focused', p.window.__BOSS_GET_FOCUSED_FIELD(), null);
 }
