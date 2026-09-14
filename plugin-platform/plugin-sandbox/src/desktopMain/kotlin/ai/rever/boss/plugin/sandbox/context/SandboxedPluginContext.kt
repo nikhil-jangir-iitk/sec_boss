@@ -38,6 +38,7 @@ import ai.rever.boss.plugin.api.ProjectSearchProvider
 import ai.rever.boss.plugin.api.RoleManagementProvider
 import ai.rever.boss.plugin.api.RunConfigurationDataProvider
 import ai.rever.boss.plugin.api.ScreenCaptureProvider
+import ai.rever.boss.plugin.api.SearchProvider
 import ai.rever.boss.plugin.api.SecretDataProvider
 import ai.rever.boss.plugin.api.SemanticTokenProvider
 import ai.rever.boss.plugin.api.SettingsProvider
@@ -300,6 +301,11 @@ class SandboxedPluginContext(
     override fun registerStatusBarItem(provider: ai.rever.boss.plugin.api.StatusBarItemProvider) = delegate.registerStatusBarItem(provider)
 
     override fun unregisterStatusBarItem(itemId: String) = delegate.unregisterStatusBarItem(itemId)
+
+    // Global search providers - delegate, for the same reason as the registries above.
+    override fun registerSearchProvider(provider: SearchProvider) = delegate.registerSearchProvider(provider)
+
+    override fun unregisterSearchProvider(providerId: String) = delegate.unregisterSearchProvider(providerId)
 
     // Plugin-to-plugin API access - delegate to underlying context
     override fun <T : Any> getPluginAPI(apiClass: Class<T>): T? = delegate.getPluginAPI(apiClass)

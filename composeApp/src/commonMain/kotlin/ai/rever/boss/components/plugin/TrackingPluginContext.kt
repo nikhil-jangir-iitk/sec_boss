@@ -43,6 +43,7 @@ import ai.rever.boss.plugin.api.ProjectSearchProvider
 import ai.rever.boss.plugin.api.RoleManagementProvider
 import ai.rever.boss.plugin.api.RunConfigurationDataProvider
 import ai.rever.boss.plugin.api.ScreenCaptureProvider
+import ai.rever.boss.plugin.api.SearchProvider
 import ai.rever.boss.plugin.api.SecretDataProvider
 import ai.rever.boss.plugin.api.SemanticTokenProvider
 import ai.rever.boss.plugin.api.SettingsProvider
@@ -501,6 +502,18 @@ class TrackingPluginContext(
 
     override fun unregisterStatusBarItem(itemId: String) {
         delegate.unregisterStatusBarItem(itemId)
+    }
+
+    // Global search providers, recorded the same way. Without these overrides the call reached the
+    // PluginContext default, which does nothing, so no plugin's provider was ever registered.
+    override fun registerSearchProvider(provider: SearchProvider) {
+        val id = provider.providerId
+        tracker.recordUiExtensionRegistration(pluginId) { delegate.unregisterSearchProvider(id) }
+        delegate.registerSearchProvider(provider)
+    }
+
+    override fun unregisterSearchProvider(providerId: String) {
+        delegate.unregisterSearchProvider(providerId)
     }
 
     // Plugin-to-plugin API access - delegate to underlying context
