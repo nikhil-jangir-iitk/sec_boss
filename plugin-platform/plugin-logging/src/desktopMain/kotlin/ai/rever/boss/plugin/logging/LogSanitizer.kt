@@ -115,9 +115,9 @@ object LogSanitizer {
         if (uri.isNullOrBlank()) return "[empty]"
 
         return try {
-            // Redact any credential carried in the authority (scheme://user:password@host)
-            // before masking query/fragment params. Handle both query params (?) and fragment (#).
-            var result = redactUserInfo(uri)
+            // Redact any credential carried in an authority (scheme://user:password@host), including
+            // a URL nested in the query or fragment, before masking query/fragment params.
+            var result = redactUserInfo(uri, freeText = false)
 
             // Mask query parameters. Indices are read off `result`, not the original `uri`,
             // because redactUserInfo above can change the string's length.
@@ -140,35 +140,90 @@ object LogSanitizer {
     }
 
     /**
-     * Redact the userinfo component of a URL: `scheme://user:password@host` becomes
+     * Redact the userinfo of every URL in a line of free text, such as a line of `git clone`
+     * output: `fatal: unable to access 'https://x-access-token:<token>@github.com/o/r.git/'` becomes
+     * `fatal: unable to access 'https://[REDACTED]@github.com/o/r.git/'`.
+     *
+     * Unlike [sanitizeLogMessage], which replaces whole URLs, paths and hostnames, this removes only
+     * the credential, so the rest of the line, including each host and port, stays readable. An
+     * authority ends where it does for [maskUriParams], and also at whitespace, so an `@` later in
+     * the sentence (an email address) is not read as a delimiter. The nested-URL `&` rule of
+     * [maskUriParams] does not apply here.
+     */
+    fun redactUrlUserInfo(text: String): String = redactUserInfo(text, freeText = true)
+
+    /**
+     * Redact the userinfo component of every URL in [text]: `scheme://user:password@host` becomes
      * `scheme://[REDACTED]@host`. A credential is routinely carried there - a private HTTPS clone
      * URL is `https://x-access-token:<token>@github.com/...` - and [maskUriParams] used to return
      * it verbatim, since it masked only query and fragment parameters.
      *
-     * Only an `@` inside the authority is a userinfo delimiter: the authority ends at the first
+     * Only an `@` inside an authority is a userinfo delimiter: the authority ends at the first
      * `/`, `?` or `#` after `://`, so an `@` in a path (`/@handle`) or a query value (an email) is
-     * left alone, and a URL with no `://` (a `mailto:` address) is returned unchanged. The scheme,
-     * host, port and path are preserved.
+     * left alone. The LAST `@` in the authority is the delimiter, as in WHATWG URL parsing, so all
+     * of `user:p@ss` is removed from `user:p@ss@host`; stopping at the first `@` would log `ss@host`.
+     * The scheme, host, port and path are preserved.
+     *
+     * Every `://` is examined, not only the first, so a URL nested in a query or fragment value
+     * (`?next=https://u:p@internal/`) is redacted too. Outside [freeText], a nested URL's authority
+     * also ends at `&`, the outer query's separator, so a later `&contact=a@b.com` is not read as
+     * its userinfo. With [freeText], every authority also ends at whitespace instead.
+     *
+     * Deliberately not handled, since the call sites log absolute URLs:
+     * - input without `://`, such as a protocol-relative `//user:pass@host/path`, is unchanged;
+     * - a percent-encoded nested URL (`?next=https%3A%2F%2Fu%3Ap%40internal`) is unchanged, and a
+     *   nested URL whose userinfo holds a literal `&` is not redacted;
+     * - `\` does not end an authority. WHATWG parsing treats it as `/` in special schemes, so
+     *   `https://evil.example\@good.example/x` loads `evil.example` but is logged as
+     *   `https://[REDACTED]@good.example/x`, hiding the host that was actually visited.
      */
-    private fun redactUserInfo(uri: String): String {
-        val schemeEnd = uri.indexOf("://")
-        if (schemeEnd < 0) return uri
-        val authorityStart = schemeEnd + 3
-        var authorityEnd = uri.length
-        for (i in authorityStart until uri.length) {
-            val c = uri[i]
-            if (c == '/' || c == '?' || c == '#') {
-                authorityEnd = i
-                break
+    private fun redactUserInfo(
+        text: String,
+        freeText: Boolean,
+    ): String {
+        var out: StringBuilder? = null
+        var copiedUpTo = 0
+        var nested = false
+        var schemeEnd = text.indexOf("://")
+        while (schemeEnd >= 0) {
+            val authorityStart = schemeEnd + 3
+            val authorityEnd = findAuthorityEnd(text, authorityStart, freeText, ampersandEnds = nested && !freeText)
+            val at = text.lastIndexOf('@', authorityEnd - 1)
+            if (at >= authorityStart) {
+                val builder = out ?: StringBuilder(text.length)
+                builder.append(text, copiedUpTo, authorityStart).append("[REDACTED]")
+                out = builder
+                copiedUpTo = at
             }
+            nested = true
+            schemeEnd = text.indexOf("://", authorityEnd)
         }
-        val at = uri.lastIndexOf('@', authorityEnd - 1)
-        return if (at < authorityStart) {
-            uri
-        } else {
-            uri.substring(0, authorityStart) + "[REDACTED]" + uri.substring(at)
-        }
+        return out?.append(text, copiedUpTo, text.length)?.toString() ?: text
     }
+
+    private fun findAuthorityEnd(
+        text: String,
+        start: Int,
+        freeText: Boolean,
+        ampersandEnds: Boolean,
+    ): Int {
+        var i = start
+        while (i < text.length && !endsAuthority(text[i], freeText, ampersandEnds)) {
+            i++
+        }
+        return i
+    }
+
+    private fun endsAuthority(
+        c: Char,
+        freeText: Boolean,
+        ampersandEnds: Boolean,
+    ): Boolean =
+        when (c) {
+            '/', '?', '#' -> true
+            '&' -> ampersandEnds
+            else -> freeText && c.isWhitespace()
+        }
 
     private fun maskParamsInSegment(
         uri: String,

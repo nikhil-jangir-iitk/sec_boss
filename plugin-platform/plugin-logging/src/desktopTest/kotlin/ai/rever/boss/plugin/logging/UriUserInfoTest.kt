@@ -95,4 +95,61 @@ class UriUserInfoTest {
             LogSanitizer.maskUriParams("https://user:pass@app.example/#access_token=secret"),
         )
     }
+
+    @Test
+    fun `a url with no path is redacted up to the end of the string`() {
+        assertEquals("https://[REDACTED]@host", LogSanitizer.maskUriParams("https://user:pass@host"))
+    }
+
+    @Test
+    fun `an at sign as the last authority character is still the delimiter`() {
+        // The backward search must start AT the last authority character; one earlier misses this '@'.
+        assertEquals("https://[REDACTED]@/path", LogSanitizer.maskUriParams("https://user:pass@/path"))
+    }
+
+    @Test
+    fun `the last at sign in the authority is the delimiter`() {
+        // WHATWG URL parsing takes the last '@'; stopping at the first would log "ss@host".
+        assertEquals("https://[REDACTED]@host/", LogSanitizer.maskUriParams("https://user:p@ss@host/"))
+    }
+
+    @Test
+    fun `a url nested in a query value is redacted`() {
+        assertEquals(
+            "https://sso.example/login?next=https://[REDACTED]@internal/",
+            LogSanitizer.maskUriParams("https://sso.example/login?next=https://u:p@internal/"),
+        )
+    }
+
+    @Test
+    fun `a nested url with no path ends at the outer query separator`() {
+        assertEquals(
+            "https://sso.example/login?next=https://[REDACTED]@internal&type=signup",
+            LogSanitizer.maskUriParams("https://sso.example/login?next=https://u:p@internal&type=signup"),
+        )
+    }
+
+    @Test
+    fun `a nested url and an outer sensitive parameter are both redacted`() {
+        assertEquals(
+            "https://sso.example/cb?next=https://[REDACTED]@internal/&token=[REDACTED]",
+            LogSanitizer.maskUriParams("https://sso.example/cb?next=https://u:p@internal/&token=abc"),
+        )
+    }
+
+    @Test
+    fun `a url nested in a fragment is redacted`() {
+        assertEquals(
+            "https://app.example/#next=https://[REDACTED]@internal/",
+            LogSanitizer.maskUriParams("https://app.example/#next=https://u:p@internal/"),
+        )
+    }
+
+    @Test
+    fun `an email after a nested url without userinfo is kept`() {
+        assertEquals(
+            "https://sso.example/login?next=https://internal.example&contact=a@b.com",
+            LogSanitizer.maskUriParams("https://sso.example/login?next=https://internal.example&contact=a@b.com"),
+        )
+    }
 }
