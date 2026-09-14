@@ -726,7 +726,7 @@ actual object DeepLinkHandler {
             .getInstance()
             .queueCommand(cliCommand)
 
-        logger.info(LogCategory.BROWSER, "URL command queued", mapOf("url" to url))
+        logger.info(LogCategory.BROWSER, "URL command queued", mapOf("url" to LogSanitizer.describeUri(url)))
     }
 
     /**
