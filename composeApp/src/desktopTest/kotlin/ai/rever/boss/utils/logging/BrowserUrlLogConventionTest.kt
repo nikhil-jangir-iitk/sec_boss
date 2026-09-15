@@ -7,8 +7,8 @@ import kotlin.test.assertEquals
 import kotlin.test.fail
 
 /**
- * Asserts that the files carrying a browser or opened-link URL into a log line never put the URL into
- * the data map unsanitized.
+ * Asserts that the files carrying a browser or opened-link URL into a log line put it into the data map
+ * only through [LogSanitizer.describeUri].
  *
  * `BossLogger` appends the data map to the line as-is, the line goes to `System.out`, and
  * `GlobalLogCapture` keeps it for the Console panel - which every plugin reads through
@@ -16,6 +16,11 @@ import kotlin.test.fail
  * `console_tail` and `console_search`. A tab's URL is where an OAuth `code`, a magic-link `token` or a
  * presigned `X-Amz-Signature` lives, and "Browser created via BrowserService" logged it at INFO, the
  * default level, on every tab creation, hibernation wake and crash recovery.
+ *
+ * **`maskUriParams` does not count.** It redacts by exact parameter name, so it passes a credential
+ * under any other name, and a deep link's query is often not a credential at all but another URL
+ * (`boss://url?url=...`) or a command (`boss://terminal?command=...`), each carried whole under a name
+ * no list would redact. `DeepLinkHandler` logged every incoming link through it.
  *
  * A convention test rather than review vigilance because the leak is one missing call in an argument
  * list, and every one of these files already sanitizes some of its URLs, so a raw one reads as
@@ -26,9 +31,14 @@ import kotlin.test.fail
  * tree-wide scan would have to allowlist lines another change is about to move. Add a file here once
  * its URL logging is sanitized.
  *
- * Still a text check: it parses each `logger.<level>(...)` call and looks at `"key" to value` pairs
- * whose key ends in url, uri, link or href. A URL logged under some other key, or built into the
- * message string, is not seen - neither shape occurs in this repo's host sources today.
+ * Still a text check, with these limits:
+ * - it reads calls on a receiver named `logger` only (`log.info(`, `BossLogger.forComponent(...).info(`
+ *   are not seen);
+ * - it looks at `"key" to value` pairs whose key **ends** in url, uri, link or href, so `"urlString"` is
+ *   not seen, and a URL built into the message string is not seen - none of these three files has
+ *   either shape today;
+ * - it skips string literals, character literals and comments to find the end of a call, but not a
+ *   raw string that contains a single `"`.
  */
 class BrowserUrlLogConventionTest {
     private val guarded =
@@ -39,7 +49,7 @@ class BrowserUrlLogConventionTest {
         )
 
     @Test
-    fun `guarded files log no url-keyed value without LogSanitizer`() {
+    fun `guarded files log no url-keyed value except through describeUri`() {
         val root = repoRoot()
         val offenders =
             guarded.flatMap { path ->
@@ -50,16 +60,16 @@ class BrowserUrlLogConventionTest {
 
         if (offenders.isNotEmpty()) {
             fail(
-                "These log calls put a URL into the data map as-is, so any token in its query or " +
-                    "fragment reaches the Console capture that plugins and MCP clients read. Wrap it in " +
-                    "LogSanitizer.describeUri (or maskUriParams where the query is needed):\n  " +
+                "These log calls put a URL into the data map without LogSanitizer.describeUri, so a token " +
+                    "in its query or fragment, or a URL or command carried in a deep link's query, reaches " +
+                    "the Console capture that plugins and MCP clients read:\n  " +
                     offenders.joinToString("\n  "),
             )
         }
     }
 
     @Test
-    fun `the scan finds single-line, multi-line and suffixed keys, and ignores sanitized ones`() {
+    fun `the scan finds single-line, multi-line and suffixed keys, and accepts only describeUri`() {
         val source =
             """
             fun f() {
@@ -81,9 +91,33 @@ class BrowserUrlLogConventionTest {
             """.trimIndent()
 
         assertEquals(
-            listOf(2 to "\"url\" to url", 8 to "\"targetUrl\" to config.url", 11 to "\"uri\" to uri"),
+            listOf(
+                2 to "\"url\" to url",
+                8 to "\"targetUrl\" to config.url",
+                11 to "\"uri\" to uri",
+                13 to "\"url\" to LogSanitizer.maskUriParams(url)",
+            ),
             unsanitizedUrlEntries(source).map { it.line to it.entry },
         )
+    }
+
+    @Test
+    fun `a quote in a comment or a character literal does not end the call early`() {
+        val source =
+            """
+            fun f() {
+                logger.info(
+                    LogCategory.BROWSER,
+                    "a",
+                    // a lone " in a comment
+                    mapOf("n" to 1),
+                )
+                logger.info(LogCategory.BROWSER, "b", mapOf("sep" to '"', "url" to url))
+            }
+            """.trimIndent()
+
+        // Read as a string delimiter, either quote runs the call on past its closing parenthesis.
+        assertEquals(listOf(8 to "\"url\" to url"), unsanitizedUrlEntries(source).map { it.line to it.entry })
     }
 
     private data class Entry(
@@ -105,16 +139,17 @@ class BrowserUrlLogConventionTest {
                 val args = source.substring(open, closingParen(source, open) + 1)
                 urlKeyed.findAll(args).mapNotNull { pair ->
                     val value = valueExpression(args, pair.range.last + 1)
-                    if (value.startsWith("LogSanitizer.") || booleanKey.containsMatchIn(pair.groupValues[1])) {
+                    val key = pair.groupValues[1]
+                    if (value.startsWith("LogSanitizer.describeUri(") || booleanKey.containsMatchIn(key)) {
                         null
                     } else {
                         val line = source.substring(0, open + pair.range.first).count { it == '\n' } + 1
-                        Entry(line, "\"${pair.groupValues[1]}\" to $value")
+                        Entry(line, "\"$key\" to $value")
                     }
                 }
             }.toList()
 
-    /** Index of the parenthesis closing the one at [open], skipping string literals. */
+    /** Index of the parenthesis closing the one at [open], skipping string and character literals and comments. */
     private fun closingParen(
         source: String,
         open: Int,
@@ -127,12 +162,33 @@ class BrowserUrlLogConventionTest {
             when {
                 inString && c == '\\' -> i++
                 c == '"' -> inString = !inString
-                !inString && c == '(' -> depth++
-                !inString && c == ')' -> if (--depth == 0) return i
+                inString -> Unit
+                c == '(' -> depth++
+                c == ')' -> if (--depth == 0) return i
+                else -> i = endOfCommentOrChar(source, i)
             }
             i++
         }
         error("unbalanced call starting at offset $open")
+    }
+
+    /**
+     * When a comment or a character literal (`'"'`, `'\''`) starts at [start], the index of its last
+     * character, so a quote inside it is not read as a string delimiter; otherwise [start] itself.
+     */
+    private fun endOfCommentOrChar(
+        source: String,
+        start: Int,
+    ): Int {
+        val escaped = source.getOrNull(start + 1) == '\\'
+        val end =
+            when {
+                source.startsWith("//", start) -> source.indexOf('\n', start)
+                source.startsWith("/*", start) -> source.indexOf("*/", start) + 1
+                source[start] == '\'' -> source.indexOf('\'', if (escaped) start + 3 else start + 2)
+                else -> start
+            }
+        return if (end < start) source.length else end
     }
 
     /** The value of a `key to value` pair: up to the next top-level comma or closing bracket. */

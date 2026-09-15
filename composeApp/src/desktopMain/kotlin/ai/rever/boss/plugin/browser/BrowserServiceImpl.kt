@@ -1064,7 +1064,11 @@ object BrowserServiceImpl : BrowserService {
                 logger.warn(
                     LogCategory.BROWSER,
                     "Cookie rejected",
-                    mapOf("name" to c.name, "url" to LogSanitizer.maskUriParams(c.url), "error" to (e.message ?: "unknown")),
+                    mapOf(
+                        "name" to c.name,
+                        "url" to LogSanitizer.describeUri(c.url),
+                        "error" to (e.message ?: "unknown"),
+                    ),
                 )
             }
         }

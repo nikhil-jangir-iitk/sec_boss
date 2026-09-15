@@ -277,6 +277,9 @@ object LogSanitizer {
      * Returns the scheme and host only for auth URIs.
      *
      * Example: "boss://auth/verify?token=abc" -> "boss://auth/verify (with query params)"
+     *
+     * A reference with no scheme, such as `localhost` or `example.com/a?q=1`, is described without
+     * one (`localhost`, `example.com/a (with query params)`) rather than as `null://...`.
      */
     fun describeUri(uri: String?): String {
         if (uri.isNullOrBlank()) return "[empty]"
@@ -286,7 +289,7 @@ object LogSanitizer {
             val hasQuery = !parsed.rawQuery.isNullOrBlank()
             val hasFragment = !parsed.rawFragment.isNullOrBlank()
 
-            val base = "${parsed.scheme}://${parsed.host ?: ""}${parsed.path ?: ""}"
+            val base = describedBase(parsed)
             val suffix =
                 when {
                     hasQuery && hasFragment -> " (with query and fragment)"
@@ -295,12 +298,19 @@ object LogSanitizer {
                     else -> ""
                 }
 
-            base + suffix
+            if (base.isEmpty()) suffix.trimStart() else base + suffix
         } catch (ignored: Exception) {
             // Deliberately unlogged: LogSanitizer runs inside the logging pipeline,
             // so logging from here could recurse. The placeholder marks the failure.
             "[uri-parse-error]"
         }
+    }
+
+    /** `scheme://host/path`; for a reference with no scheme, `//host/path` or just the path. */
+    private fun describedBase(parsed: URI): String {
+        val scheme = parsed.scheme?.let { "$it://" }
+        val authority = parsed.host?.let { if (scheme == null) "//$it" else it }
+        return scheme.orEmpty() + authority.orEmpty() + parsed.path.orEmpty()
     }
 
     // -------------------------------------------------------------------------

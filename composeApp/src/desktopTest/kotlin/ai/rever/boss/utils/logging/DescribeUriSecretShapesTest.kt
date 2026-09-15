@@ -15,7 +15,8 @@ import kotlin.test.assertEquals
  *
  * Not covered, by either function: a credential in the path itself (`/reset-password/<token>`, a
  * Slack webhook). `describeUri` also drops the port and reads an opaque URI such as `about:blank`
- * as `about://`, which costs the log a little detail and exposes nothing.
+ * as `about://`, which costs the log a little detail and exposes nothing. A reference with no scheme
+ * keeps its whole path, and for input that is not a URL at all (`localhost`) that is the input.
  */
 class DescribeUriSecretShapesTest {
     private fun assertDescribed(
@@ -67,6 +68,30 @@ class DescribeUriSecretShapesTest {
     @Test
     fun `userinfo is dropped`() {
         assertDescribed("https://github.com/o/r.git", "https://x-access-token:SECRET@github.com/o/r.git")
+    }
+
+    @Test
+    fun `a deep link's query carrying another URL or a command is dropped`() {
+        // DeepLinkHandler logs every incoming link: maskUriParams passed these whole, since none of
+        // url, command or oobCode is a name it lists.
+        assertDescribed(
+            "boss://url (with query params)",
+            "boss://url?url=https%3A%2F%2Fapp.example.com%2Fcb%3FoobCode%3DSECRET",
+        )
+        assertDescribed("boss://url (with query params)", "boss://url?url=https://app.example.com/cb?code=SECRET")
+        assertDescribed("boss://terminal (with query params)", "boss://terminal?command=export%20API_TOKEN%3DSECRET")
+        assertDescribed("boss://auth/verify (with query params)", "boss://auth/verify?oobCode=SECRET")
+    }
+
+    @Test
+    fun `a reference with no scheme is described without one`() {
+        // What CLICommandHandler logs for input normalizeAndValidateUrl rejected, and what a
+        // boss://url link can carry before that check runs. It used to read "null://localhost".
+        assertDescribed("localhost", "localhost")
+        assertDescribed("app (with query params)", "app?code=SECRET")
+        assertDescribed("example.com/reset (with query params)", "example.com/reset?token=SECRET")
+        assertDescribed("//cdn.example.com/f (with query params)", "//cdn.example.com/f?sig=SECRET")
+        assertDescribed("about://", "about:blank")
     }
 
     @Test
