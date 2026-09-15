@@ -26,6 +26,7 @@ You can install or update the CLI symlinks inside BossConsole via **Toolbox → 
 | `boss status` | Checks running BossConsole health and status | `boss status --json` |
 | `boss doctor` | Reports health problems with suggested next steps (exit `2` when degraded) | `boss doctor --json` |
 | `boss mcp <action>` | Discovers and invokes MCP tools | `boss mcp list` |
+| `boss plugin <action>` | Developer CLI: scaffold, validate, and link plugins | `boss plugin init my-tool` |
 | `boss completion <shell>` | Generates shell tab-completion scripts | `boss completion bash > ~/.boss-complete.sh` |
 
 ---
@@ -52,7 +53,7 @@ boss status --json
 ```json
 {
   "running": true,
-  "version": "9.5.7",
+  "version": "9.5.10",
   "os": "Windows 11",
   "arch": "amd64",
   "activeProject": "BossConsole",
@@ -195,12 +196,40 @@ boss completion fish > ~/.config/fish/completions/boss.fish
 
 ---
 
+## Plugin Developer CLI (`boss plugin`)
+
+The `boss plugin` command suite accelerates developing third-party plugins with scaffolding, validation, and hot-linking. See [`docs/PLUGIN_LAUNCHPAD.md`](PLUGIN_LAUNCHPAD.md) for full specifications.
+
+### 1. `boss plugin init <name>`
+Scaffolds a new plugin project across templates (`mcp-tool`, `ui-panel`, `background-service`, `full`):
+```bash
+boss plugin init my-tool --template mcp-tool
+boss plugin init my-service --template background-service --dir ~/plugins/my-service --json
+```
+
+### 2. `boss plugin validate [<path>]`
+Validates a plugin source directory or packaged `.jar` against manifest rules, permitted permissions, and bytecode entrypoints:
+```bash
+boss plugin validate
+boss plugin validate build/libs/my-plugin-0.1.0.jar --json
+```
+
+### 3. `boss plugin link [<path>]`
+Links the plugin into `$BOSS_HOME/plugins/dev/<plugin-id>`. If BossConsole is running, triggers a live hot-reload over the loopback IPC socket:
+```bash
+boss plugin link
+boss plugin link . --json
+```
+
+---
+
 ## Process Exit Codes & Stream Guarantees
 
 The CLI adheres to strict UNIX process exit codes and standard stream separation:
 
 - **Exit Code `0`**: Operation succeeded. `stdout` contains the tool output or JSON response.
 - **Exit Code `1`**: Tool execution failed (`isError == true`), invalid tool arguments, or desktop app offline. Clikt usage errors also use exit code `1`. The error description is written strictly to `stderr`, leaving `stdout` clean so shell pipelines do not ingest corrupted data.
+- **Output encoding**: Piped or redirected output, including every `--json` response and `boss mcp invoke` tool output, is UTF-8 on every platform; a Windows console keeps its own code page. Windows PowerShell 5.1 decodes a native command's output with `[Console]::OutputEncoding`, so set it to UTF-8 (`[Console]::OutputEncoding = [System.Text.Encoding]::UTF8`) before capturing output that contains non-ASCII text.
 - **Exit Code `2`**: `boss doctor` only. BOSS is running but reported at least one health finding. `stdout` still contains the report, so a script can branch on the code and read the details. `boss status` never uses this code.
 
 ### Offline Fail-Fast
