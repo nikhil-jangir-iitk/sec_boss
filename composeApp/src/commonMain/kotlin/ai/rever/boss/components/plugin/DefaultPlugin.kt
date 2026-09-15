@@ -159,6 +159,8 @@ class DefaultPlugin(
     private val workspaceManager: ai.rever.boss.components.workspaces.WorkspaceManager? = null,
     private val splitViewState: ai.rever.boss.components.window_panel.SplitViewState? = null,
 ) : PluginContext {
+    private val registrationOwner = WindowRegistrations.Owner()
+
     companion object {
         /**
          * Which window's plugin copy each process-wide registration belongs to. Shared by every
@@ -614,7 +616,7 @@ class DefaultPlugin(
      * Plugins can implement SearchProvider to contribute results to Spotlight.
      */
     override fun registerSearchProvider(provider: SearchProvider) {
-        registrations.register(searchProviders, provider.providerId, owner = this, value = provider)
+        registrations.register(searchProviders, provider.providerId, owner = registrationOwner, value = provider)
         logger.debug(
             LogCategory.SYSTEM,
             "Search provider registered",
@@ -628,7 +630,7 @@ class DefaultPlugin(
      * Unregister a search provider.
      */
     override fun unregisterSearchProvider(providerId: String) {
-        val outcome = registrations.unregister(searchProviders, providerId, owner = this)
+        val outcome = registrations.unregister(searchProviders, providerId, owner = registrationOwner)
         logger.debug(
             LogCategory.SYSTEM,
             "Search provider unregistered",
@@ -646,7 +648,7 @@ class DefaultPlugin(
     // ============================================================
 
     override fun registerMcpToolProvider(provider: ai.rever.boss.plugin.api.McpToolProvider) {
-        registrations.register(mcpToolProviders, provider.providerId, owner = this, value = provider)
+        registrations.register(mcpToolProviders, provider.providerId, owner = registrationOwner, value = provider)
         logger.debug(
             LogCategory.SYSTEM,
             "MCP tool provider registered",
@@ -657,7 +659,7 @@ class DefaultPlugin(
     }
 
     override fun unregisterMcpToolProvider(providerId: String) {
-        val outcome = registrations.unregister(mcpToolProviders, providerId, owner = this)
+        val outcome = registrations.unregister(mcpToolProviders, providerId, owner = registrationOwner)
         logger.debug(
             LogCategory.SYSTEM,
             "MCP tool provider unregistered",
@@ -680,43 +682,43 @@ class DefaultPlugin(
     // ============================================================
 
     override fun registerPanelMenuContribution(contribution: ai.rever.boss.plugin.api.PanelMenuContribution) {
-        registrations.register(panelMenus, contribution.contributionId, owner = this, value = contribution)
+        registrations.register(panelMenus, contribution.contributionId, owner = registrationOwner, value = contribution)
     }
 
     override fun unregisterPanelMenuContribution(contributionId: String) {
-        registrations.unregister(panelMenus, contributionId, owner = this)
+        registrations.unregister(panelMenus, contributionId, owner = registrationOwner)
     }
 
     override fun registerSettingsPage(provider: ai.rever.boss.plugin.api.SettingsPageProvider) {
-        registrations.register(settingsPages, provider.pageId, owner = this, value = provider)
+        registrations.register(settingsPages, provider.pageId, owner = registrationOwner, value = provider)
     }
 
     override fun unregisterSettingsPage(pageId: String) {
-        registrations.unregister(settingsPages, pageId, owner = this)
+        registrations.unregister(settingsPages, pageId, owner = registrationOwner)
     }
 
     override fun registerDeepLinkActionHandler(handler: ai.rever.boss.plugin.api.DeepLinkActionHandler) {
-        registrations.register(deepLinkActions, handler.handlerId, owner = this, value = handler)
+        registrations.register(deepLinkActions, handler.handlerId, owner = registrationOwner, value = handler)
     }
 
     override fun unregisterDeepLinkActionHandler(handlerId: String) {
-        registrations.unregister(deepLinkActions, handlerId, owner = this)
+        registrations.unregister(deepLinkActions, handlerId, owner = registrationOwner)
     }
 
     override fun registerShortcutActionProvider(provider: ai.rever.boss.plugin.api.ShortcutActionProvider) {
-        registrations.register(shortcutActions, provider.providerId, owner = this, value = provider)
+        registrations.register(shortcutActions, provider.providerId, owner = registrationOwner, value = provider)
     }
 
     override fun unregisterShortcutActionProvider(providerId: String) {
-        registrations.unregister(shortcutActions, providerId, owner = this)
+        registrations.unregister(shortcutActions, providerId, owner = registrationOwner)
     }
 
     override fun registerStatusBarItem(provider: ai.rever.boss.plugin.api.StatusBarItemProvider) {
-        registrations.register(statusBarItems, provider.itemId, owner = this, value = provider)
+        registrations.register(statusBarItems, provider.itemId, owner = registrationOwner, value = provider)
     }
 
     override fun unregisterStatusBarItem(itemId: String) {
-        registrations.unregister(statusBarItems, itemId, owner = this)
+        registrations.unregister(statusBarItems, itemId, owner = registrationOwner)
     }
 
     // Split view operations for plugins that need tab/panel operations
@@ -1149,7 +1151,7 @@ class DefaultPlugin(
         }
         // After the teardown above, so it only catches what a plugin's teardown did not remove: none of it
         // may be served again when another window later lets go of the same id.
-        registrations.release(this)
+        registrations.release(registrationOwner)
         // Providers that registered themselves with a process-wide singleton, or that own a
         // coroutine, do not go away with `pluginScope` - it is not their scope. Only the ones
         // actually built: see [logDataProviderDelegate].

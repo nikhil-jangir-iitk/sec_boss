@@ -243,6 +243,8 @@ class PluginRegistrationsAcrossWindowsTest {
             }
 
             second.dispose()
+            // A startup registration finishing after disposal cannot resurrect this window.
+            for (kind in kinds) kind.register(second, idFor(kind), "late-second")
 
             assertEveryKind(kinds) { kind -> expect("first", kind) }
         } finally {

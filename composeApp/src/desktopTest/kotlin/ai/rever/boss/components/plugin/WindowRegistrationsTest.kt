@@ -37,18 +37,18 @@ class WindowRegistrationsTest {
 
     private val registry = RecordingRegistry()
     private val registrations = WindowRegistrations()
-    private val window1 = Any()
-    private val window2 = Any()
-    private val window3 = Any()
+    private val window1 = WindowRegistrations.Owner()
+    private val window2 = WindowRegistrations.Owner()
+    private val window3 = WindowRegistrations.Owner()
 
     private fun register(
-        window: Any,
+        window: WindowRegistrations.Owner,
         value: String,
         id: String = "tools",
     ) = registrations.register(registry.target, id, window, id to value)
 
     private fun unregister(
-        window: Any,
+        window: WindowRegistrations.Owner,
         id: String = "tools",
     ) = registrations.unregister(registry.target, id, window)
 
@@ -183,12 +183,17 @@ class WindowRegistrationsTest {
         val target =
             WindowRegistrations.Target<String>(
                 "blocking",
-                publish = {
-                    entered.countDown()
-                    check(resume.await(10, TimeUnit.SECONDS))
+                publish = { value ->
+                    if (value == "one") {
+                        entered.countDown()
+                        check(resume.await(10, TimeUnit.SECONDS))
+                    }
                 },
                 withdraw = {},
             )
+        // Previously owning an id must not keep a dependency on it after unregister.
+        registrations.register(target, "blocked", window2, "previous")
+        registrations.unregister(target, "blocked", window2)
         try {
             val publisher = executor.submit { registrations.register(target, "blocked", window1, "one") }
             assertTrue(entered.await(5, TimeUnit.SECONDS))
@@ -198,6 +203,55 @@ class WindowRegistrationsTest {
             release.get(2, TimeUnit.SECONDS)
             resume.countDown()
             publisher.get(5, TimeUnit.SECONDS)
+        } finally {
+            resume.countDown()
+            executor.shutdownNow()
+            assertTrue(executor.awaitTermination(5, TimeUnit.SECONDS))
+        }
+    }
+
+    @Test
+    fun `a released window cannot replace the survivor or introduce a new id`() {
+        register(window1, "one")
+        register(window2, "two")
+        registrations.release(window2)
+        register(window2, "late")
+        register(window2, "late-new", id = "new")
+        assertEquals(mapOf("tools" to "one"), registry.served)
+        registrations.release(window1)
+        assertEquals(emptyMap(), registry.served)
+    }
+
+    @Test
+    fun `release fences new registrations while an admitted publication finishes`() {
+        val entered = CountDownLatch(1)
+        val resume = CountDownLatch(1)
+        val executor = Executors.newFixedThreadPool(2)
+        val target =
+            WindowRegistrations.Target<Pair<String, String>>(
+                "blocking",
+                publish = { value ->
+                    if (value.second == "two") {
+                        entered.countDown()
+                        check(resume.await(10, TimeUnit.SECONDS))
+                    }
+                    registry.target.publish(value)
+                },
+                withdraw = registry.target.withdraw,
+            )
+        registrations.register(target, "tools", window1, "tools" to "one")
+        try {
+            val publisher = executor.submit { registrations.register(target, "tools", window2, "tools" to "two") }
+            assertTrue(entered.await(5, TimeUnit.SECONDS))
+            val release = executor.submit { registrations.release(window2) }
+            val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(5)
+            while (!window2.released && System.nanoTime() < deadline) Thread.yield()
+            assertTrue(window2.released)
+            registrations.register(target, "new", window2, "new" to "late")
+            resume.countDown()
+            publisher.get(5, TimeUnit.SECONDS)
+            release.get(5, TimeUnit.SECONDS)
+            assertEquals(mapOf("tools" to "one"), registry.served)
         } finally {
             resume.countDown()
             executor.shutdownNow()

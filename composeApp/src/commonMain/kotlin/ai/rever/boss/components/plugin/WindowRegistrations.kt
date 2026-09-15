@@ -26,13 +26,41 @@ import java.util.concurrent.ConcurrentHashMap
  * **Locked per (registry, id), never globally.** Publishing runs plugin code - the MCP registry calls
  * the provider's `tools()`, the shortcut registry its `shortcuts()` - and `McpToolRegistryCore`
  * keeps untrusted plugin code away from any lock another plugin's lifecycle waits on. A per-id lock
- * can only make the same id in another window wait.
+ * can only make the same id in another window wait. Restore re-queries tools()/shortcuts() on the
+ * closing thread; a slow surviving provider can therefore delay closing a window that shared its id.
+ * Release fences future registrations and visits only slots admitted by that owner.
  *
  * Not addressed here: while two windows are open, the most recent window's copy serves every window,
  * exactly as before. A provider whose action looks a window up in its own plugin state (a shortcut's
  * `onAction(actionId, windowId)`) still sees only its own copy's windows.
  */
 internal class WindowRegistrations {
+    /** A window lifetime token; no process-wide set retains closed windows. */
+    class Owner {
+        @Volatile
+        var released: Boolean = false
+            private set
+
+        private val admitted = mutableSetOf<Slot<*>>()
+
+        internal fun admit(slot: Slot<*>): Boolean =
+            synchronized(this) {
+                if (released) return@synchronized false
+                admitted += slot
+                true
+            }
+
+        internal fun forget(slot: Slot<*>) {
+            synchronized(this) { admitted.remove(slot) }
+        }
+
+        internal fun close(): List<Slot<*>> =
+            synchronized(this) {
+                released = true
+                admitted.toList().also { admitted.clear() }
+            }
+    }
+
     /** One process-wide registry, as [DefaultPlugin] reaches it. */
     class Target<V : Any>(
         val name: String,
@@ -55,33 +83,27 @@ internal class WindowRegistrations {
         WITHDRAWN,
     }
 
-    private class Slot<V : Any>(
+    internal class Slot<V : Any>(
         private val target: Target<V>,
         private val id: String,
     ) {
         /** (window, value), the served one last. Guarded by this slot's monitor. */
-        private val entries = ArrayList<Pair<Any, V>>()
-
-        // release visits every slot, including plugins this window never loaded. Checking ownership
-        // must not acquire a monitor held by another window's blocking tools()/shortcuts() callback.
-        @Volatile
-        private var owners: List<Any> = emptyList()
-
-        fun isOwnedBy(owner: Any): Boolean = owners.any { it === owner }
+        private val entries = ArrayList<Pair<Owner, V>>()
 
         fun register(
-            owner: Any,
+            owner: Owner,
             value: V,
         ) = synchronized(this) {
+            if (!owner.admit(this)) return@synchronized
             entries.removeAll { it.first === owner }
             entries += owner to value
-            owners = entries.map { it.first }
             target.publish(value)
         }
 
-        fun unregister(owner: Any): Outcome =
+        fun unregister(owner: Owner): Outcome =
             synchronized(this) {
                 val index = entries.indexOfFirst { it.first === owner }
+                if (index >= 0) owner.forget(this)
                 val served = index == entries.lastIndex
                 when {
                     index < 0 -> {
@@ -90,13 +112,11 @@ internal class WindowRegistrations {
 
                     !served -> {
                         entries.removeAt(index)
-                        owners = entries.map { it.first }
                         Outcome.REMOVED_UNSERVED
                     }
 
                     else -> {
                         entries.removeAt(index)
-                        owners = entries.map { it.first }
                         val next = entries.lastOrNull()
                         if (next == null) {
                             target.withdraw(id)
@@ -110,19 +130,19 @@ internal class WindowRegistrations {
             }
     }
 
-    private val slots = ConcurrentHashMap<Pair<String, String>, Slot<*>>()
+    private val slots = ConcurrentHashMap<Pair<Target<*>, String>, Slot<*>>()
 
     @Suppress("UNCHECKED_CAST")
     private fun <V : Any> slot(
         target: Target<V>,
         id: String,
-    ): Slot<V> = slots.computeIfAbsent(target.name to id) { Slot(target, id) } as Slot<V>
+    ): Slot<V> = slots.computeIfAbsent(target to id) { Slot(target, id) } as Slot<V>
 
     /** Records [value] as [owner]'s registration of [id] in [target] and publishes it. */
     fun <V : Any> register(
         target: Target<V>,
         id: String,
-        owner: Any,
+        owner: Owner,
         value: V,
     ) = slot(target, id).register(owner, value)
 
@@ -130,7 +150,7 @@ internal class WindowRegistrations {
     fun <V : Any> unregister(
         target: Target<V>,
         id: String,
-        owner: Any,
+        owner: Owner,
     ): Outcome = slot(target, id).unregister(owner)
 
     /**
@@ -139,7 +159,7 @@ internal class WindowRegistrations {
      * For a window that is gone: a registration its plugins' teardown did not remove must not be
      * served again later, when a remaining window lets go of the same id.
      */
-    fun release(owner: Any) {
-        slots.values.filter { it.isOwnedBy(owner) }.forEach { it.unregister(owner) }
+    fun release(owner: Owner) {
+        owner.close().forEach { it.unregister(owner) }
     }
 }
