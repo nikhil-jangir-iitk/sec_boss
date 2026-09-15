@@ -1,8 +1,12 @@
 package ai.rever.boss.components.plugin
 
 import ai.rever.boss.components.plugin.WindowRegistrations.Outcome
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertTrue
 
 /**
  * The arbitration rules of [WindowRegistrations], against a recording registry.
@@ -169,5 +173,35 @@ class WindowRegistrationsTest {
         assertEquals(Outcome.NOT_REGISTERED_BY_WINDOW, unregister(window2, id = "a"))
         // And a released window's entry can never come back once the survivor lets go.
         assertEquals(Outcome.WITHDRAWN, unregister(window1, id = "a"))
+    }
+
+    @Test
+    fun `releasing an unrelated window does not wait for blocked plugin publication`() {
+        val entered = CountDownLatch(1)
+        val resume = CountDownLatch(1)
+        val executor = Executors.newFixedThreadPool(2)
+        val target =
+            WindowRegistrations.Target<String>(
+                "blocking",
+                publish = {
+                    entered.countDown()
+                    check(resume.await(10, TimeUnit.SECONDS))
+                },
+                withdraw = {},
+            )
+        try {
+            val publisher = executor.submit { registrations.register(target, "blocked", window1, "one") }
+            assertTrue(entered.await(5, TimeUnit.SECONDS))
+            val release = executor.submit { registrations.release(window2) }
+            // The callback is still blocked. This window never owned that slot, so its disposal
+            // must finish without waiting for another window's plugin to return.
+            release.get(2, TimeUnit.SECONDS)
+            resume.countDown()
+            publisher.get(5, TimeUnit.SECONDS)
+        } finally {
+            resume.countDown()
+            executor.shutdownNow()
+            assertTrue(executor.awaitTermination(5, TimeUnit.SECONDS))
+        }
     }
 }

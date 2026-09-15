@@ -62,12 +62,20 @@ internal class WindowRegistrations {
         /** (window, value), the served one last. Guarded by this slot's monitor. */
         private val entries = ArrayList<Pair<Any, V>>()
 
+        // release visits every slot, including plugins this window never loaded. Checking ownership
+        // must not acquire a monitor held by another window's blocking tools()/shortcuts() callback.
+        @Volatile
+        private var owners: List<Any> = emptyList()
+
+        fun isOwnedBy(owner: Any): Boolean = owners.any { it === owner }
+
         fun register(
             owner: Any,
             value: V,
         ) = synchronized(this) {
             entries.removeAll { it.first === owner }
             entries += owner to value
+            owners = entries.map { it.first }
             target.publish(value)
         }
 
@@ -82,11 +90,13 @@ internal class WindowRegistrations {
 
                     !served -> {
                         entries.removeAt(index)
+                        owners = entries.map { it.first }
                         Outcome.REMOVED_UNSERVED
                     }
 
                     else -> {
                         entries.removeAt(index)
+                        owners = entries.map { it.first }
                         val next = entries.lastOrNull()
                         if (next == null) {
                             target.withdraw(id)
@@ -130,6 +140,6 @@ internal class WindowRegistrations {
      * served again later, when a remaining window lets go of the same id.
      */
     fun release(owner: Any) {
-        slots.values.forEach { it.unregister(owner) }
+        slots.values.filter { it.isOwnedBy(owner) }.forEach { it.unregister(owner) }
     }
 }
