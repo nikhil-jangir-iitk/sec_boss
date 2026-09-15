@@ -26,6 +26,7 @@ import ai.rever.boss.plugin.api.McpToolRegistry
 import ai.rever.boss.plugin.api.NavigationResolverProvider
 import ai.rever.boss.plugin.api.NavigationTargetProvider
 import ai.rever.boss.plugin.api.NotificationProvider
+import ai.rever.boss.plugin.api.OrganisationMembersProvider
 import ai.rever.boss.plugin.api.PanelEventProvider
 import ai.rever.boss.plugin.api.PanelRegistry
 import ai.rever.boss.plugin.api.PerformanceDataProvider
@@ -226,6 +227,10 @@ class SandboxedPluginContext(
     // Navigation resolver provider - delegate to underlying context
     override val navigationResolverProvider: NavigationResolverProvider?
         get() = delegate.navigationResolverProvider
+
+    // Organisation co-members - delegate to underlying context
+    override val organisationMembersProvider: OrganisationMembersProvider?
+        get() = delegate.organisationMembersProvider
 
     // Semantic token provider - delegate to underlying context
     override val semanticTokenProvider: SemanticTokenProvider?
