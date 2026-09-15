@@ -1,0 +1,173 @@
+package ai.rever.boss.components.plugin
+
+import ai.rever.boss.components.plugin.WindowRegistrations.Outcome
+import kotlin.test.Test
+import kotlin.test.assertEquals
+
+/**
+ * The arbitration rules of [WindowRegistrations], against a recording registry.
+ *
+ * [PluginRegistrationsAcrossWindowsTest] covers the same behaviour through two real `DefaultPlugin`
+ * windows and the real registries; this pins the ordering cases a pair of windows cannot reach.
+ */
+class WindowRegistrationsTest {
+    /** A registry that serves one value per id, like the real ones, and records every call. */
+    private class RecordingRegistry(
+        name: String = "recording",
+    ) {
+        val served = mutableMapOf<String, String>()
+        val calls = mutableListOf<String>()
+        val target =
+            WindowRegistrations.Target<Pair<String, String>>(
+                name = name,
+                publish = { (id, value) ->
+                    served[id] = value
+                    calls += "publish $id=$value"
+                },
+                withdraw = { id ->
+                    served.remove(id)
+                    calls += "withdraw $id"
+                },
+            )
+    }
+
+    private val registry = RecordingRegistry()
+    private val registrations = WindowRegistrations()
+    private val window1 = Any()
+    private val window2 = Any()
+    private val window3 = Any()
+
+    private fun register(
+        window: Any,
+        value: String,
+        id: String = "tools",
+    ) = registrations.register(registry.target, id, window, id to value)
+
+    private fun unregister(
+        window: Any,
+        id: String = "tools",
+    ) = registrations.unregister(registry.target, id, window)
+
+    @Test
+    fun `the newest registration is served`() {
+        register(window1, "one")
+        register(window2, "two")
+
+        assertEquals("two", registry.served["tools"])
+    }
+
+    @Test
+    fun `when the served window lets go, the previous window's registration is served again`() {
+        register(window1, "one")
+        register(window2, "two")
+
+        assertEquals(Outcome.RESTORED_OTHER_WINDOW, unregister(window2))
+        assertEquals("one", registry.served["tools"])
+        assertEquals(listOf("publish tools=one", "publish tools=two", "publish tools=one"), registry.calls)
+    }
+
+    @Test
+    fun `when an unserved window lets go, the registry is not touched`() {
+        register(window1, "one")
+        register(window2, "two")
+        registry.calls.clear()
+
+        assertEquals(Outcome.REMOVED_UNSERVED, unregister(window1))
+        assertEquals("two", registry.served["tools"])
+        assertEquals(emptyList(), registry.calls)
+    }
+
+    @Test
+    fun `the last window to let go withdraws the id`() {
+        register(window1, "one")
+        register(window2, "two")
+        unregister(window1)
+
+        assertEquals(Outcome.WITHDRAWN, unregister(window2))
+        assertEquals(null, registry.served["tools"])
+    }
+
+    @Test
+    fun `a window with no registration changes nothing`() {
+        register(window1, "one")
+        registry.calls.clear()
+
+        assertEquals(Outcome.NOT_REGISTERED_BY_WINDOW, unregister(window2))
+        assertEquals("one", registry.served["tools"])
+        assertEquals(emptyList(), registry.calls)
+    }
+
+    @Test
+    fun `registering again from the same window replaces its entry and serves it`() {
+        // A plugin reloaded in window 1 while window 2 also has it: the reload is the newest.
+        register(window1, "one")
+        register(window2, "two")
+        register(window1, "one-reloaded")
+
+        assertEquals("one-reloaded", registry.served["tools"])
+        assertEquals(Outcome.RESTORED_OTHER_WINDOW, unregister(window1))
+        assertEquals("two", registry.served["tools"])
+        assertEquals(Outcome.WITHDRAWN, unregister(window2))
+    }
+
+    @Test
+    fun `three windows closing out of order always serve the newest remaining registration`() {
+        register(window1, "one")
+        register(window2, "two")
+        register(window3, "three")
+
+        unregister(window2)
+        assertEquals("three", registry.served["tools"])
+        unregister(window3)
+        assertEquals("one", registry.served["tools"])
+        unregister(window1)
+        assertEquals(null, registry.served["tools"])
+    }
+
+    @Test
+    fun `when the served window lets go of several, the newest remaining one is served`() {
+        register(window1, "one")
+        register(window2, "two")
+        register(window3, "three")
+
+        assertEquals(Outcome.RESTORED_OTHER_WINDOW, unregister(window3))
+        assertEquals("two", registry.served["tools"])
+    }
+
+    @Test
+    fun `ids are arbitrated independently`() {
+        register(window1, "one", id = "a")
+        register(window2, "two", id = "b")
+
+        assertEquals(Outcome.NOT_REGISTERED_BY_WINDOW, unregister(window2, id = "a"))
+        assertEquals(Outcome.WITHDRAWN, unregister(window2, id = "b"))
+        assertEquals(mapOf("a" to "one"), registry.served)
+    }
+
+    @Test
+    fun `the same id in two registries is arbitrated separately`() {
+        // Plugins reuse one id across registries: the Toolbox registers its MCP provider and its
+        // deep-link handler under its plugin id.
+        val other = RecordingRegistry(name = "other")
+        registrations.register(registry.target, "shared", window1, "shared" to "tools")
+        registrations.register(other.target, "shared", window2, "shared" to "links")
+
+        assertEquals(Outcome.NOT_REGISTERED_BY_WINDOW, registrations.unregister(registry.target, "shared", window2))
+        assertEquals(mapOf("shared" to "tools"), registry.served)
+        assertEquals(mapOf("shared" to "links"), other.served)
+    }
+
+    @Test
+    fun `releasing a closed window drops everything it still held`() {
+        register(window1, "one", id = "a")
+        register(window2, "two", id = "a")
+        register(window2, "two", id = "b")
+
+        registrations.release(window2)
+
+        assertEquals(mapOf("a" to "one"), registry.served)
+        assertEquals(Outcome.NOT_REGISTERED_BY_WINDOW, unregister(window2, id = "a"))
+        // And a released window's entry can never come back once the survivor lets go.
+        assertEquals(Outcome.WITHDRAWN, unregister(window1, id = "a"))
+    }
+}
