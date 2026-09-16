@@ -70,6 +70,24 @@ class DescribeUriSecretShapesTest {
         assertDescribed("https://github.com/o/r.git", "https://x-access-token:SECRET@github.com/o/r.git")
     }
 
+    /**
+     * The same URL with a host `java.net.URI` will not parse as a hostname.
+     *
+     * `URI.getHost()` and `getRawUserInfo()` are BOTH null for an authority containing an underscore
+     * or a non-ASCII label, so the parser offers no help at all here: measured on JDK 17,
+     * `https://x-access-token:SECRET@my_host.example.com/o/r.git` reports `host=null`,
+     * `userInfo=null` and `rawAuthority=x-access-token:SECRET@my_host.example.com`. Naming the
+     * authority means reading that raw string, and the secret is in it.
+     */
+    @Test
+    fun `userinfo is dropped from an authority the parser rejects too`() {
+        assertDescribed(
+            "https://my_host.example.com/o/r.git",
+            "https://x-access-token:SECRET@my_host.example.com/o/r.git",
+        )
+        assertDescribed("https://web_server/a", "https://user@name:SECRET@web_server/a")
+    }
+
     @Test
     fun `a deep link's query carrying another URL or a command is dropped`() {
         // DeepLinkHandler logs every incoming link: maskUriParams passed these whole, since none of
