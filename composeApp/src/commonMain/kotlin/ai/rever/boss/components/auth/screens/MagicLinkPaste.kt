@@ -39,13 +39,14 @@ private val INVISIBLE_NOISE = setOf('\u200B', '\u200C', '\u200D', '\uFEFF')
  * `boss://` is not delivered (BossConsole#410), which is a plain-text copy, and plain-text mail
  * clients wrap a long URL across lines. A break lands mid-token, so `trim()` alone refuses the one
  * shape this exists to read. Safe here because no part this reads can legitimately contain any of
- * these: [TOKEN] and [TYPE] both exclude them, and a URL carries them encoded. A leading
- * byte-order mark is dropped before the passthrough check, since `trim()` does not reach it and a
- * routed host would take the link over mangled. The `boss://` passthrough is deliberately outside
- * the strip and keeps its plain `trim()`, since that link is handed on verbatim rather than parsed.
+ * these: [TOKEN] and [TYPE] both exclude them, and a URL carries them encoded. Leading and
+ * trailing invisible noise - including a byte-order mark - is trimmed before the passthrough
+ * check, since plain `trim()` does not reach it and a routed host would take the link over
+ * mangled. The `boss://` passthrough is deliberately outside the strip and keeps the same trim,
+ * since that link is handed on verbatim rather than parsed.
  */
 internal fun signInDeepLinkFor(pasted: String): String? {
-    val link = pasted.trim().removePrefix("\uFEFF")
+    val link = pasted.trim { it.isWhitespace() || it in INVISIBLE_NOISE }
     if (link.startsWith("boss://")) return link
     return signInTokenIn(
         link.filterNot { it.isWhitespace() || it in INVISIBLE_NOISE },

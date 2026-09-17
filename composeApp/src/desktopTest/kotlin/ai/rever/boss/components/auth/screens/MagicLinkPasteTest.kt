@@ -202,7 +202,8 @@ class MagicLinkPasteTest {
     @Test
     fun `the boss passthrough hands the link on exactly as pasted`() {
         // Whitespace removal sits deliberately below this branch. The passthrough forwards the
-        // link verbatim, and the routed hosts one can carry take values where a space means
+        // link verbatim (apart from the leading/trailing copy noise the trim drops), and the routed
+        // hosts one can carry take values where a space means
         // something (`boss://terminal?command=ls -la`, `boss://file?path=/My Notes/a.md`).
         // Those hosts are dispatched instead of reaching deepLinkFlow, so the contract is pinned
         // on a host that does reach it.
@@ -238,9 +239,10 @@ class MagicLinkPasteTest {
     @Test
     fun `a fragment a rewriter appended to the nested url is stripped by the recursion`() {
         // The rewriter appends `#_=_` to the link it rewrote, and the link it rewrote here is the
-        // confirmation URL inside `url=`. The recursion re-enters the same read, so the fragment is
-        // dropped before that query is parsed.
-        val inner = "$verify?token=$token&type=magiclink&redirect_to=boss://auth/verify#_=_"
+        // confirmation URL inside `url=`. `type` comes last, so without the strip the inner type
+        // decodes to `magiclink#_=_` and the charset check refuses: the test fails on exactly the
+        // mutation it names (delete `substringBefore('#')` from the read).
+        val inner = "$verify?redirect_to=boss://auth/verify&token=$token&type=magiclink#_=_"
         val encodedInner =
             inner
                 .replace("?", "%3f")
@@ -265,6 +267,14 @@ class MagicLinkPasteTest {
         // there it would fail the passthrough and a routed link would be re-parsed and mangled.
         val spaced = "boss://auth/verify?token=$token&type=magiclink&note=two words"
         assertEquals(spaced, paste("\uFEFF" + spaced))
+    }
+
+    @Test
+    fun `a BOM followed by a space still reaches the boss passthrough`() {
+        // The near neighbour removePrefix missed: plain trim() stops at the BOM and leaves the
+        // space, so only a predicate trim that reaches both ends covers it.
+        val spaced = "boss://auth/verify?token=$token&type=magiclink&note=two words"
+        assertEquals(spaced, paste("\uFEFF " + spaced))
     }
 
     @Test
