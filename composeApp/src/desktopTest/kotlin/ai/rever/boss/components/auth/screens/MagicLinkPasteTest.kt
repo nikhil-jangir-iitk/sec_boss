@@ -228,6 +228,46 @@ class MagicLinkPasteTest {
     }
 
     @Test
+    fun `a token that lives only in the fragment is refused`() {
+        // Before the fragment strip, the query read kept everything after the first `?`, so this
+        // token - sitting past the `#` - was read as if it were in the query and sent to Supabase.
+        // The strip narrows that; pin it, since nothing else pins the narrowing.
+        assertRefused("$verify?a=1#&token=$token")
+    }
+
+    @Test
+    fun `a fragment a rewriter appended to the nested url is stripped by the recursion`() {
+        // The rewriter appends `#_=_` to the link it rewrote, and the link it rewrote here is the
+        // confirmation URL inside `url=`. The recursion re-enters the same read, so the fragment is
+        // dropped before that query is parsed.
+        val inner = "$verify?token=$token&type=magiclink&redirect_to=boss://auth/verify#_=_"
+        val encodedInner =
+            inner
+                .replace("?", "%3f")
+                .replace("#", "%23")
+                .replace("&", "%26")
+                .replace("=", "%3d")
+                .replace(":", "%3a")
+                .replace("/", "%2f")
+        assertReachesVerification("$redirect?url=$encodedInner")
+    }
+
+    @Test
+    fun `a zero-width space inside the token does not defeat it`() {
+        // A rendered copy can carry U+200B where a line soft-broke; Char.isWhitespace does not
+        // reach it, so the strip names the invisible characters instead of relying on it.
+        assertReachesVerification("$verify?token=${token.substring(0, 32)}\u200B${token.substring(32)}&type=magiclink")
+    }
+
+    @Test
+    fun `a leading byte-order mark does not defeat the boss passthrough`() {
+        // A clipboard can put U+FEFF in front of the link, where trim() does not reach it; left
+        // there it would fail the passthrough and a routed link would be re-parsed and mangled.
+        val spaced = "boss://auth/verify?token=$token&type=magiclink&note=two words"
+        assertEquals(spaced, paste("\uFEFF" + spaced))
+    }
+
+    @Test
     fun `a pasted sign-in link is logged without its token`() {
         // DeepLinkHandler logs what it is given through maskUriParams, which masks a top-level token only.
         val dispatched = paste(encodedEmailLink())
