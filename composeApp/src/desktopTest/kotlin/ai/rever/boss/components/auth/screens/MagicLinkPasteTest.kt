@@ -178,6 +178,56 @@ class MagicLinkPasteTest {
     }
 
     @Test
+    fun `a fragment after the type does not become part of it`() {
+        // Some mail clients append a fragment to every link they rewrite; `#_=_` is the one
+        // Facebook's rewriter is known for. It lands inside whichever parameter came last, so
+        // the charset check refuses a link that is otherwise exactly the covered shape.
+        assertReachesVerification("$verify?redirect_to=boss://auth/verify&token=$token&type=magiclink#_=_")
+    }
+
+    @Test
+    fun `a fragment after the token does not become part of it`() {
+        assertReachesVerification("$verify?type=signup&token=$token#", type = "signup")
+    }
+
+    @Test
+    fun `a link broken across lines by a plain-text mail client still reaches verification`() {
+        // This box exists for the path where boss:// is not delivered (#410), which is the
+        // plain-text copy - and plain-text clients wrap long URLs. trim() reaches the ends only.
+        val wrapped = encodedEmailLink()
+        val broken = wrapped.substring(0, 60) + System.lineSeparator() + wrapped.substring(60)
+        assertReachesVerification(broken)
+    }
+
+    @Test
+    fun `the boss passthrough hands the link on exactly as pasted`() {
+        // Whitespace removal sits deliberately below this branch. The passthrough forwards the
+        // link verbatim, and the routed hosts one can carry take values where a space means
+        // something (`boss://terminal?command=ls -la`, `boss://file?path=/My Notes/a.md`).
+        // Those hosts are dispatched instead of reaching deepLinkFlow, so the contract is pinned
+        // on a host that does reach it.
+        val spaced = "boss://auth/verify?token=$token&type=magiclink&note=two words"
+        assertEquals(spaced, paste("  $spaced  "))
+    }
+
+    @Test
+    fun `a link with no type at all verifies as a magic link`() {
+        // The `?: "magiclink"` default: every other fixture carries a type, so nothing reached it.
+        assertReachesVerification("$verify?token=$token")
+    }
+
+    @Test
+    fun `token_hash on the outer link is read, not only the nested one`() {
+        // The redirect function's own simple form (app.ts:171).
+        assertReachesVerification("$redirect?token_hash=$token&type=magiclink")
+    }
+
+    @Test
+    fun `an empty token is refused`() {
+        assertRefused("$verify?token=&type=magiclink")
+    }
+
+    @Test
     fun `a pasted sign-in link is logged without its token`() {
         // DeepLinkHandler logs what it is given through maskUriParams, which masks a top-level token only.
         val dispatched = paste(encodedEmailLink())

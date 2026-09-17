@@ -25,22 +25,41 @@ private val TYPE = Regex("[a-z_]+")
  *   service pasted by mistake is never sent to Supabase.
  *
  * `url=` is followed at most [MAX_UNWRAP] times: the email's own wrapper and one more.
+ *
+ * **Whitespace is removed from the whole link, not only its ends.** This box is the path for when
+ * `boss://` is not delivered (BossConsole#410), which is a plain-text copy, and plain-text mail
+ * clients wrap a long URL across lines. A break lands mid-token, so `trim()` alone refuses the one
+ * shape this exists to read. Safe here because no part this reads can legitimately contain
+ * whitespace: [TOKEN] and [TYPE] both exclude it, and a URL carries it encoded. The `boss://`
+ * passthrough is deliberately outside this and keeps its plain `trim()`, since that link is handed
+ * on verbatim rather than parsed.
  */
 internal fun signInDeepLinkFor(pasted: String): String? {
     val link = pasted.trim()
     if (link.startsWith("boss://")) return link
-    return signInTokenIn(link, MAX_UNWRAP)?.let { (token, type) ->
+    return signInTokenIn(link.filterNot(Char::isWhitespace), MAX_UNWRAP)?.let { (token, type) ->
         val resolvedType = type ?: "magiclink"
         "boss://auth/verify?token=$token&type=$resolvedType"
             .takeIf { TOKEN.matches(token) && TYPE.matches(resolvedType) }
     }
 }
 
+/**
+ * The token and type in [link], or null when it carries none.
+ *
+ * The fragment is dropped before the query is read. `substringAfter('?')` would otherwise keep a
+ * trailing `#...` inside whichever parameter came last, so a mail client that appends one to every
+ * link it rewrites turns a valid `&type=magiclink` into `magiclink#_=_` and the charset check
+ * refuses it. Nothing this reads lives in the fragment: the one sign-in link that carries its token
+ * there is `boss://auth/verify#access_token=`, which returns from the passthrough above and never
+ * reaches here.
+ */
 private fun signInTokenIn(
     link: String,
     unwrapsLeft: Int,
 ): Pair<String, String?>? {
-    val params = runCatching { parseQueryString(link.substringAfter('?', "")) }.getOrNull()
+    val query = link.substringAfter('?', "").substringBefore('#')
+    val params = runCatching { parseQueryString(query) }.getOrNull()
     val token = params?.get("token") ?: params?.get("token_hash")
     val outerType = params?.get("type")
     val nested = params?.get("url")?.takeIf { unwrapsLeft > 0 }
