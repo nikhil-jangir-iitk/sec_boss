@@ -38,14 +38,20 @@ jobs:
           sha256sum /tmp/splinter.sql
 
       - name: Declare the PostgREST exposed schemas
+        # Best effort. The local `postgres` role cannot ALTER DATABASE, so the
+        # authoritative setting is the session-level one in the next step; this
+        # only makes it stick if a superuser connection happens to work.
+        continue-on-error: true
         run: |
-          psql "$DB_URL" -v ON_ERROR_STOP=1 -c "alter database postgres set pgrst.db_schemas = 'public,graphql_public';"
+          psql "$ADMIN_URL" -c "alter database postgres set pgrst.db_schemas = 'public,graphql_public';" || true
         env:
-          DB_URL: postgresql://postgres:postgres@127.0.0.1:54322/postgres
+          ADMIN_URL: postgresql://supabase_admin:postgres@127.0.0.1:54322/postgres
 
       - name: Run splinter
         run: |
-          psql "$DB_URL" -v ON_ERROR_STOP=1 --csv -f /tmp/splinter.sql > /tmp/splinter.csv
+          psql "$DB_URL" -v ON_ERROR_STOP=1 --csv \
+            -c "set pgrst.db_schemas = 'public,graphql_public';" \
+            -f /tmp/splinter.sql > /tmp/splinter.csv
           echo "rows: $(($(wc -l < /tmp/splinter.csv) - 1))"
         env:
           DB_URL: postgresql://postgres:postgres@127.0.0.1:54322/postgres
