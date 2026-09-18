@@ -41,6 +41,8 @@ class DescribeUriReferenceTest {
     fun `an absolute URI is described as before`() {
         assertDescribed("https://example.com/cb (with query params)", "https://example.com/cb?code=secret")
         assertDescribed("boss://auth/verify (with query params)", "boss://auth/verify?token=secret")
+        assertDescribed("https://example.com/a%0Aforged", "https://example.com/a%0Aforged")
+        assertDescribed("https://example.com/a%3Fcode%3Dsecret", "https://example.com/a%3Fcode%3Dsecret")
         assertDescribed("about://", "about:blank")
     }
 

@@ -37,6 +37,10 @@ import kotlin.test.fail
  * - it looks at `"key" to value` pairs whose key **ends** in url, uri, link or href, so `"urlString"` is
  *   not seen, and a URL built into the message string is not seen - none of these three files has
  *   either shape today;
+ * - it accepts a value by the `LogSanitizer.describeUri(` prefix, so concatenating raw text after the
+ *   call would pass, while a member-imported bare `describeUri(...)` would not;
+ * - keys such as `"hasUrl"` and `"isLink"` are exempted by name, not by inspecting their value;
+ * - an URL carried by `error = e` is invisible even though [BossLogger] logs exception messages;
  * - it skips string literals, character literals and comments to find the end of a call, but not a
  *   raw string that contains a single `"`.
  */

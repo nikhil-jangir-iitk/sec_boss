@@ -274,7 +274,7 @@ object LogSanitizer {
 
     /**
      * Describe a URI safely without exposing sensitive parameters.
-     * Returns the scheme and host only for auth URIs.
+     * Returns the scheme, host and path without query, fragment, port or userinfo.
      *
      * Example: "boss://auth/verify?token=abc" -> "boss://auth/verify (with query params)"
      *
@@ -322,7 +322,7 @@ object LogSanitizer {
         val scheme = parsed.scheme?.let { "$it://" }
         val host = parsed.host ?: hostFromRawAuthority(parsed.rawAuthority)
         val authority = host?.let { if (scheme == null) "//$it" else it }
-        return scheme.orEmpty() + authority.orEmpty() + parsed.path.orEmpty()
+        return scheme.orEmpty() + authority.orEmpty() + parsed.rawPath.orEmpty()
     }
 
     /**
