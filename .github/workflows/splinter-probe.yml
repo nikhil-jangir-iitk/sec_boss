@@ -1,0 +1,66 @@
+name: splinter probe
+
+# Scratch workflow. Runs the Supabase schema linter against the real migrated
+# database so the findings can be read before anything is proposed. Never
+# intended for upstream.
+
+on:
+  push:
+    branches:
+      - 'probe/**'
+
+jobs:
+  splinter:
+    name: schema lint
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Setup Supabase CLI
+        uses: supabase/setup-cli@v2
+        with:
+          version: 2.109.0
+
+      - name: Start local Postgres (applies migrations)
+        run: supabase db start
+
+      - name: Record server version
+        run: |
+          psql "$DB_URL" -c 'select version();'
+        env:
+          DB_URL: postgresql://postgres:postgres@127.0.0.1:54322/postgres
+
+      - name: Fetch splinter
+        run: |
+          curl -sSfL https://raw.githubusercontent.com/supabase/splinter/main/splinter.sql -o /tmp/splinter.sql
+          wc -l /tmp/splinter.sql
+          sha256sum /tmp/splinter.sql
+
+      - name: Declare the PostgREST exposed schemas
+        run: |
+          psql "$DB_URL" -v ON_ERROR_STOP=1 -c "alter database postgres set pgrst.db_schemas = 'public,graphql_public';"
+        env:
+          DB_URL: postgresql://postgres:postgres@127.0.0.1:54322/postgres
+
+      - name: Run splinter
+        run: |
+          psql "$DB_URL" -v ON_ERROR_STOP=1 --csv -f /tmp/splinter.sql > /tmp/splinter.csv
+          echo "rows: $(($(wc -l < /tmp/splinter.csv) - 1))"
+        env:
+          DB_URL: postgresql://postgres:postgres@127.0.0.1:54322/postgres
+
+      - name: Summarise findings
+        if: always()
+        run: python3 scripts/splinter-probe-report.py /tmp/splinter.csv
+
+      - name: Upload raw findings
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: splinter-findings
+          path: /tmp/splinter.csv
+
+      - name: Stop Supabase
+        if: always()
+        run: supabase stop --no-backup || true
