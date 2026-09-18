@@ -21,20 +21,20 @@ insert into bench.rows_under_policy
 select g, '00000000-0000-0000-0000-000000000001'::uuid
 from generate_series(1, 200000) g;
 
-create table bench.calls (n bigint);
-insert into bench.calls values (0);
-
+-- The counter is a session GUC, not a table: PostgreSQL refuses DML inside a
+-- non-volatile function, and the function has to stay STABLE or the planner
+-- would not hoist it and the comparison would be meaningless.
 create or replace function bench.is_admin_like(u uuid)
 returns boolean language plpgsql stable security definer as $$
 begin
-  update bench.calls set n = n + 1;
+  perform set_config('bench.n',
+    (coalesce(current_setting('bench.n', true), '0')::bigint + 1)::text, false);
   return false;
 end;
 $$;
 
 grant usage on schema bench to authenticated;
 grant select on bench.rows_under_policy to authenticated;
-grant all on bench.calls to authenticated;
 grant execute on function bench.is_admin_like(uuid) to authenticated;
 
 alter table bench.rows_under_policy enable row level security;
@@ -45,12 +45,12 @@ create policy per_row on bench.rows_under_policy for select to authenticated
          or owner = '00000000-0000-0000-0000-000000000001'::uuid);
 
 \echo '=== per-row form ==='
-update bench.calls set n = 0;
+select set_config('bench.n', '0', false);
 set role authenticated;
 explain (analyze, timing off, costs off)
   select count(*) from bench.rows_under_policy;
 reset role;
-select n as helper_calls_per_row_form from bench.calls;
+select current_setting('bench.n')::bigint as helper_calls_per_row_form;
 
 drop policy per_row on bench.rows_under_policy;
 
@@ -60,11 +60,11 @@ create policy hoisted on bench.rows_under_policy for select to authenticated
          or owner = '00000000-0000-0000-0000-000000000001'::uuid);
 
 \echo '=== hoisted form ==='
-update bench.calls set n = 0;
+select set_config('bench.n', '0', false);
 set role authenticated;
 explain (analyze, timing off, costs off)
   select count(*) from bench.rows_under_policy;
 reset role;
-select n as helper_calls_hoisted_form from bench.calls;
+select current_setting('bench.n')::bigint as helper_calls_hoisted_form;
 
 drop schema bench cascade;
