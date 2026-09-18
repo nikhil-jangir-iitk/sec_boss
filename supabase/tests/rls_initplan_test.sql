@@ -20,8 +20,11 @@ select plan(9);
 -- ---------------------------------------------------------------------------
 -- 1: no statement-constant call is left un-hoisted anywhere in the schema.
 --
--- The composite `is_user_admin(auth.uid())` is stripped first and as a unit, so
--- the `auth.uid()` inside an already-hoisted call is not counted as a bare one.
+-- Hoisted calls are stripped innermost first: the session calls, which are the
+-- inner half of `is_user_admin(( select auth.uid() ))`, and only then the helper
+-- names. Stripping the helper first would leave the inner session call looking
+-- like a bare one. Both strips require a preceding SELECT, so a genuinely
+-- un-hoisted call survives them and fails this assertion.
 -- ---------------------------------------------------------------------------
 select is_empty(
     $$ with pol as (
@@ -36,8 +39,8 @@ select is_empty(
          select tbl, polname,
                 regexp_replace(
                   regexp_replace(expr,
-                    'SELECT\s+is_user_admin\(auth\.uid\(\)\)', '', 'g'),
-                  'SELECT\s+(auth\.uid|auth\.jwt|authorize)', '', 'g') as rest
+                    'SELECT\s+auth\.(uid|jwt|role)\s*\(\s*\)', '', 'g'),
+                  'SELECT\s+(authorize|is_user_admin)', '', 'g') as rest
          from pol
        )
        select tbl, polname from stripped
