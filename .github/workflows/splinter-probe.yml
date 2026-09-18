@@ -1,0 +1,69 @@
+name: splinter probe
+
+# Scratch workflow. Applies the migrations, runs the real pgTAP suite, then runs
+# the Supabase schema linter and asserts the InitPlan lint is empty. Never
+# intended for upstream.
+
+on:
+  push:
+    branches:
+      - 'probe/**'
+
+jobs:
+  verify:
+    name: migrate, test, lint
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Setup Supabase CLI
+        uses: supabase/setup-cli@v2
+        with:
+          version: 2.109.0
+
+      - name: Start local Postgres (applies migrations)
+        run: supabase db start
+
+      - name: Prepare DB access tests
+        run: |
+          python3 scripts/test/prepare-db-access-tests.py
+          python3 scripts/test/prepare-db-access-tests.py --check
+
+      - name: Prepare migration fixtures
+        run: python3 scripts/test/prepare-totp-migration-fixtures.py
+
+      - name: Run the pgTAP suite
+        run: supabase test db
+
+      - name: Fetch splinter
+        run: |
+          curl -sSfL https://raw.githubusercontent.com/supabase/splinter/main/splinter.sql -o /tmp/splinter.sql
+          sha256sum /tmp/splinter.sql
+
+      - name: Run splinter
+        run: |
+          psql "$DB_URL" -v ON_ERROR_STOP=1 --csv \
+            -c "set pgrst.db_schemas = 'public,graphql_public';" \
+            -f /tmp/splinter.sql > /tmp/splinter.csv
+        env:
+          DB_URL: postgresql://postgres:postgres@127.0.0.1:54322/postgres
+
+      - name: Assert the InitPlan lint is empty
+        run: python3 scripts/splinter-probe-report.py /tmp/splinter.csv --require-zero auth_rls_initplan
+
+      - name: Measure the hoist
+        run: psql "$DB_URL" -v ON_ERROR_STOP=1 -f scripts/measure-initplan.sql
+        env:
+          DB_URL: postgresql://postgres:postgres@127.0.0.1:54322/postgres
+
+      - name: Upload raw findings
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: splinter-findings
+          path: /tmp/splinter.csv
+
+      - name: Stop Supabase
+        if: always()
+        run: supabase stop --no-backup || true
