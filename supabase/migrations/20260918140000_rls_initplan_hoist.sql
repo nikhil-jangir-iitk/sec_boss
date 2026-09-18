@@ -20,15 +20,19 @@
 -- no arguments, and of a call whose arguments are literals or are themselves
 -- statement-constant. It is false of a call that takes a column, because the
 -- answer then differs per row and hoisting it would return one row's answer for
--- every row. Each of the 86 sites was classified against that rule from the
--- catalog, not from the migration sources.
+-- every row. All 131 call sites in the schema's policies were classified
+-- against that rule from the catalog, not from the migration sources.
 --
--- What is hoisted:
+-- What is hoisted, counted as the OUTERMOST call at each site:
 --
 --   auth.jwt                      18 sites
 --   auth.uid                      44 sites
 --   authorize                     12 sites
 --   is_user_admin                 12 sites
+--
+-- The auth.uid figure is the standalone ones. Twelve more sit inside the
+-- is_user_admin calls below and are hoisted with them, so the schema's 56
+-- auth.uid sites are 44 here plus those 12.
 --
 -- WHAT IS DELIBERATELY LEFT ALONE, because each takes a column and hoisting it
 -- would be a security bug rather than an optimisation:
