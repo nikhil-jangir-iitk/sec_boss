@@ -60,6 +60,20 @@
 -- makes the rewrite sound; plpgsql is why it is worth doing, since a plpgsql
 -- function cannot be inlined and so pays a full call per row.
 --
+-- The twelve is_user_admin sites carry TWO subqueries, deliberately, and the
+-- inner one is not redundant for the reason it looks redundant:
+--
+--     ( SELECT is_user_admin(( SELECT auth.uid() )) )
+--
+-- The OUTER one is the fix. It is what stops a plpgsql call happening once per
+-- row, and with it the inner call already runs once per statement, so the inner
+-- subquery changes nothing about execution. The INNER one is there because the
+-- advisor's check is TEXTUAL: it accepts a session call only directly behind a
+-- SELECT, so with the outer hoist alone these ten policies stay flagged by a
+-- lint the stronger rewrite has already satisfied in substance. Measured, not
+-- assumed: the first run of this migration left `auth_rls_initplan` reporting
+-- exactly those 10.
+--
 -- Not covered: policies whose only remaining per-row work is a helper taking a
 -- column, listed above. Making those cheaper means changing the helpers or the
 -- policies themselves, which is a behaviour change and belongs in its own PR.
@@ -121,13 +135,13 @@ ALTER POLICY "Users can view their own challenges" ON public.passkey_challenges
   USING (((( SELECT auth.uid() ) = user_id) OR (user_id IS NULL)));
 
 ALTER POLICY "Admins can create permissions" ON public.permissions
-  WITH CHECK (( SELECT is_user_admin(auth.uid()) ));
+  WITH CHECK (( SELECT is_user_admin(( SELECT auth.uid() )) ));
 
 ALTER POLICY "Admins can delete non-system permissions" ON public.permissions
-  USING (((NOT is_system) AND ( SELECT is_user_admin(auth.uid()) )));
+  USING (((NOT is_system) AND ( SELECT is_user_admin(( SELECT auth.uid() )) )));
 
 ALTER POLICY "Admins can update non-system permissions" ON public.permissions
-  USING (((NOT is_system) AND ( SELECT is_user_admin(auth.uid()) )));
+  USING (((NOT is_system) AND ( SELECT is_user_admin(( SELECT auth.uid() )) )));
 
 ALTER POLICY "Service role full access to permissions" ON public.permissions
   USING (((( SELECT auth.jwt() ) ->> 'role'::text) = 'service_role'::text));
@@ -216,26 +230,26 @@ ALTER POLICY "Service role full access to reserved email domains" ON public.rese
   USING (((( SELECT auth.jwt() ) ->> 'role'::text) = 'service_role'::text));
 
 ALTER POLICY "Admins can manage role hierarchy" ON public.role_hierarchy
-  USING (( SELECT is_user_admin(auth.uid()) ))
-  WITH CHECK (( SELECT is_user_admin(auth.uid()) ));
+  USING (( SELECT is_user_admin(( SELECT auth.uid() )) ))
+  WITH CHECK (( SELECT is_user_admin(( SELECT auth.uid() )) ));
 
 ALTER POLICY "Service role full access to role hierarchy" ON public.role_hierarchy
   USING (((( SELECT auth.jwt() ) ->> 'role'::text) = 'service_role'::text));
 
 ALTER POLICY "Admins can manage role permissions" ON public.role_permissions
-  USING (( SELECT is_user_admin(auth.uid()) ));
+  USING (( SELECT is_user_admin(( SELECT auth.uid() )) ));
 
 ALTER POLICY "Service role full access to role_permissions" ON public.role_permissions
   USING (((( SELECT auth.jwt() ) ->> 'role'::text) = 'service_role'::text));
 
 ALTER POLICY "Admins can create roles" ON public.roles
-  WITH CHECK (( SELECT is_user_admin(auth.uid()) ));
+  WITH CHECK (( SELECT is_user_admin(( SELECT auth.uid() )) ));
 
 ALTER POLICY "Admins can delete non-system roles" ON public.roles
-  USING (((NOT is_system) AND ( SELECT is_user_admin(auth.uid()) )));
+  USING (((NOT is_system) AND ( SELECT is_user_admin(( SELECT auth.uid() )) )));
 
 ALTER POLICY "Admins can update non-system roles" ON public.roles
-  USING (((NOT is_system) AND ( SELECT is_user_admin(auth.uid()) )));
+  USING (((NOT is_system) AND ( SELECT is_user_admin(( SELECT auth.uid() )) )));
 
 ALTER POLICY "Service role full access to roles" ON public.roles
   USING (((( SELECT auth.jwt() ) ->> 'role'::text) = 'service_role'::text));
@@ -313,15 +327,15 @@ ALTER POLICY "Users can view their own passkeys" ON public.user_passkeys
   USING ((( SELECT auth.uid() ) = user_id));
 
 ALTER POLICY "Admins can assign roles" ON public.user_roles
-  WITH CHECK (( SELECT is_user_admin(auth.uid()) ));
+  WITH CHECK (( SELECT is_user_admin(( SELECT auth.uid() )) ));
 
 ALTER POLICY "Admins can remove roles" ON public.user_roles
-  USING ((( SELECT is_user_admin(auth.uid()) ) AND (NOT ((user_id = ( SELECT auth.uid() )) AND (role_id IN ( SELECT roles.id
+  USING ((( SELECT is_user_admin(( SELECT auth.uid() )) ) AND (NOT ((user_id = ( SELECT auth.uid() )) AND (role_id IN ( SELECT roles.id
    FROM roles
   WHERE (roles.name = 'admin'::text)))))));
 
 ALTER POLICY "Admins can view all roles" ON public.user_roles
-  USING (( SELECT is_user_admin(auth.uid()) ));
+  USING (( SELECT is_user_admin(( SELECT auth.uid() )) ));
 
 ALTER POLICY "Service role full access to user_roles" ON public.user_roles
   USING (((( SELECT auth.jwt() ) ->> 'role'::text) = 'service_role'::text));
