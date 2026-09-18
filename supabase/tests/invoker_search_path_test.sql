@@ -23,7 +23,7 @@ select is(
     (select p.proconfig from pg_proc p
      join pg_namespace n on n.oid = p.pronamespace
      where n.nspname = 'public' and p.proname = 'check_api_key_limit'),
-    array['search_path='],
+    array['search_path=""'],
     'check_api_key_limit pins an empty search_path'
 );
 
@@ -31,7 +31,7 @@ select is(
     (select p.proconfig from pg_proc p
      join pg_namespace n on n.oid = p.pronamespace
      where n.nspname = 'public' and p.proname = 'cleanup_expired_completed_authentications'),
-    array['search_path='],
+    array['search_path=""'],
     'cleanup_expired_completed_authentications pins an empty search_path'
 );
 
@@ -39,7 +39,7 @@ select is(
     (select p.proconfig from pg_proc p
      join pg_namespace n on n.oid = p.pronamespace
      where n.nspname = 'public' and p.proname = 'trigger_cleanup_expired_completed_auths'),
-    array['search_path='],
+    array['search_path=""'],
     'trigger_cleanup_expired_completed_auths pins an empty search_path'
 );
 
@@ -47,7 +47,7 @@ select is(
     (select p.proconfig from pg_proc p
      join pg_namespace n on n.oid = p.pronamespace
      where n.nspname = 'public' and p.proname = 'update_plugin_timestamp'),
-    array['search_path='],
+    array['search_path=""'],
     'update_plugin_timestamp pins an empty search_path'
 );
 
@@ -55,16 +55,19 @@ select is(
     (select p.proconfig from pg_proc p
      join pg_namespace n on n.oid = p.pronamespace
      where n.nspname = 'public' and p.proname = 'custom_access_token_hook'),
-    array['search_path='],
+    array['search_path=""'],
     'custom_access_token_hook pins an empty search_path'
 );
 
 -- ---------------------------------------------------------------------------
--- 6: and no function in public is left without one.
+-- 6: and no OTHER invoker function is left without one.
 --
--- Stated over the whole schema rather than as five names, so it keeps meaning
--- when a later migration adds a function. This is the advisor's lint 0011
--- restated against the catalog.
+-- Scoped to SECURITY INVOKER on purpose. This is the advisor's lint 0011
+-- restated against the catalog, limited to the half this migration owns; the
+-- definer half is the #772 sweep's, and asserting the whole schema here would
+-- make this suite fail until that lands rather than when this migration breaks.
+-- Stated as a property rather than as five names, so it keeps meaning when a
+-- later migration adds an invoker function.
 -- ---------------------------------------------------------------------------
 select is_empty(
     $$ select p.proname
@@ -72,6 +75,7 @@ select is_empty(
        join pg_namespace n on n.oid = p.pronamespace
        where n.nspname = 'public'
          and p.prokind in ('f', 'p')
+         and not p.prosecdef
          and not exists (
            select 1 from pg_catalog.pg_depend d
            where d.classid = 'pg_catalog.pg_proc'::regclass
@@ -80,7 +84,7 @@ select is_empty(
               or not exists (
                 select 1 from unnest(p.proconfig) c
                 where c like 'search_path=%')) $$,
-    'no function in public is left with a mutable search_path'
+    'no SECURITY INVOKER function in public is left with a mutable search_path'
 );
 
 -- ---------------------------------------------------------------------------
