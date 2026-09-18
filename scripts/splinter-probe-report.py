@@ -7,6 +7,7 @@ every finding's level, lint name and detail line.
 
 import collections
 import csv
+import io
 import os
 import sys
 
@@ -14,7 +15,11 @@ import sys
 def main() -> int:
     path = sys.argv[1]
     with open(path, newline="", encoding="utf-8") as handle:
-        rows = list(csv.DictReader(handle))
+        raw = handle.read()
+    # psql prints a command tag for each SET and DO in splinter.sql before the
+    # result set, so the header is not the first line.
+    header = raw.index("name,title,level,")
+    rows = list(csv.DictReader(io.StringIO(raw[header:])))
 
     by_name = collections.Counter(r["name"] for r in rows)
     by_level = collections.Counter(r["level"] for r in rows)

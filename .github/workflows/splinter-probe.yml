@@ -56,6 +56,29 @@ jobs:
         env:
           DB_URL: postgresql://postgres:postgres@127.0.0.1:54322/postgres
 
+      - name: Dump every policy from the catalog
+        run: |
+          psql "$DB_URL" -v ON_ERROR_STOP=1 --csv -c "
+            select n.nspname                          as schemaname,
+                   c.relname                          as tablename,
+                   p.polname                          as policyname,
+                   p.polcmd                           as cmd,
+                   p.polpermissive                    as permissive,
+                   coalesce(
+                     (select string_agg(r.rolname, ',' order by r.rolname)
+                        from pg_roles r where r.oid = any (p.polroles)),
+                     'PUBLIC')                        as roles,
+                   pg_get_expr(p.polqual, p.polrelid) as qual,
+                   pg_get_expr(p.polwithcheck, p.polrelid) as with_check
+            from pg_policy p
+            join pg_class c on c.oid = p.polrelid
+            join pg_namespace n on n.oid = c.relnamespace
+            where n.nspname = 'public'
+            order by c.relname, p.polname;" > /tmp/policies.csv
+          echo "policies: $(($(wc -l < /tmp/policies.csv) - 1))"
+        env:
+          DB_URL: postgresql://postgres:postgres@127.0.0.1:54322/postgres
+
       - name: Summarise findings
         if: always()
         run: python3 scripts/splinter-probe-report.py /tmp/splinter.csv
@@ -65,7 +88,9 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: splinter-findings
-          path: /tmp/splinter.csv
+          path: |
+            /tmp/splinter.csv
+            /tmp/policies.csv
 
       - name: Stop Supabase
         if: always()
