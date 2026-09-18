@@ -69,10 +69,11 @@
 -- row, and with it the inner call already runs once per statement, so the inner
 -- subquery changes nothing about execution. The INNER one is there because the
 -- advisor's check is TEXTUAL: it accepts a session call only directly behind a
--- SELECT, so with the outer hoist alone these ten policies stay flagged by a
--- lint the stronger rewrite has already satisfied in substance. Measured, not
+-- SELECT, so with the outer hoist alone these policies stay flagged by a lint
+-- the stronger rewrite has already satisfied in substance. Measured, not
 -- assumed: the first run of this migration left `auth_rls_initplan` reporting
--- exactly those 10.
+-- exactly them. Twelve sites over ten policies, two of which carry the call in
+-- both USING and WITH CHECK.
 --
 -- Not covered: policies whose only remaining per-row work is a helper taking a
 -- column, listed above. Making those cheaper means changing the helpers or the
