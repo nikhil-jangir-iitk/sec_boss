@@ -1,19 +1,21 @@
 -- pgTAP tests for the hook-helper revoke (20260919020000).
 -- Run with: supabase test db
 --
--- The point of these assertions is not that a grant was removed. It is that the
--- grant was the ONLY thing standing between a signed-in user and every other
--- user's roles, which is what makes the removal worth making and what a future
--- convenience regrant would undo.
+-- Scope, because the function name invites a stronger reading than the change
+-- supports: this removes one unused grant so the helper matches the two beside
+-- it. It does NOT close role disclosure generally. get_user_roles,
+-- get_user_roles_with_names and user_has_role still take a caller-supplied
+-- subject id with no authorization check and are still executable by
+-- authenticated. Assertion 12 pins exactly that, so this suite records the state
+-- of the whole family rather than implying a fix it did not make.
 --
--- Assertion 4 is the one to keep. It establishes, by reading the policies rather
--- than by assertion, that RLS on user_roles gives an ordinary user their own
--- rows only. That is the control the SECURITY DEFINER function was bypassing, so
--- if it ever stops being true this test is measuring the wrong thing and should
--- fail loudly rather than keep passing.
+-- Assertion 4 is the one to keep. It establishes by reading the policies that
+-- RLS on user_roles gives an ordinary reader their own rows only, which is the
+-- control every SECURITY DEFINER function in this family bypasses. If that stops
+-- being true, this suite is measuring the wrong thing and should fail loudly.
 
 begin;
-select plan(11);
+select plan(12);
 
 -- ---------------------------------------------------------------------------
 -- 1-3: the client roles cannot execute it any more.
@@ -110,6 +112,23 @@ select ok(
     not pg_catalog.has_function_privilege('authenticated',
         'public.get_user_orgs_for_hook(uuid)', 'EXECUTE'),
     'get_user_orgs_for_hook is still closed to authenticated'
+);
+
+-- ---------------------------------------------------------------------------
+-- 12: the family this migration does NOT fix, recorded as still open.
+--
+-- This asserts the gap rather than the fix. It fails when someone closes those
+-- three, which is the moment to come back, delete it, and drop the scoping
+-- paragraph at the top.
+-- ---------------------------------------------------------------------------
+select is(
+    (select pg_catalog.count(*)::int
+     from (values ('public.get_user_roles(uuid)'),
+                  ('public.get_user_roles_with_names(uuid)'),
+                  ('public.user_has_role(uuid, text)')) as f(sig)
+     where pg_catalog.has_function_privilege('authenticated', f.sig, 'EXECUTE')),
+    3,
+    'the three unguarded role readers are still open to authenticated, and are not this PR'
 );
 
 select * from finish();
