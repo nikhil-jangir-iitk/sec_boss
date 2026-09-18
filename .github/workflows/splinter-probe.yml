@@ -101,7 +101,10 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: splinter-findings
-          path: /tmp/splinter.csv
+          path: |
+            /tmp/splinter.csv
+            /tmp/functions.csv
+            /tmp/grants.csv
 
       - name: Stop Supabase
         if: always()
