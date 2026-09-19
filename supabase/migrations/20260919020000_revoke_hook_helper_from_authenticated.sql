@@ -15,10 +15,12 @@
 -- function. 20260909130000 then made exactly this revoke for
 -- `custom_access_token_hook`, the function these three serve.
 --
--- Nothing calls it from a client. The only references outside the migrations are
--- two assertions in supabase/tests/boss_org_member_role_test.sql, which run as
--- the test role. The desktop client and the Edge Functions read roles from the
--- JWT claims the hook already wrote.
+-- Nothing calls it from a client. The only calls outside the migrations are two
+-- assertions in supabase/tests/boss_org_member_role_test.sql, which run as the
+-- test role; its other mentions are documentation. The desktop client reads its
+-- own roles from the JWT claims the hook wrote (RoleService.decodeJWTClaims) and
+-- other users' through get_user_roles_with_names, and the Edge Functions read the
+-- claims too (passkey/utils/jwt.ts, plugin-store/utils/auth.ts).
 --
 -- WHAT THIS DOES NOT DO, stated plainly because the function name invites the
 -- stronger reading: it does not stop a signed-in user reading another user's
