@@ -117,9 +117,9 @@ select ok(
 -- ---------------------------------------------------------------------------
 -- 12: the family this migration does NOT fix, recorded as still open.
 --
--- This asserts the gap rather than the fix. It fails when someone closes those
--- three, which is the moment to come back, delete it, and drop the scoping
--- paragraph at the top.
+-- This pins their GRANTS, not the absence of a check inside them. A guard added
+-- inside the functions keeps these grants, so it passes this; only a revoke would
+-- fail it, which is the moment to come back and drop the scoping paragraph.
 -- ---------------------------------------------------------------------------
 select is(
     (select pg_catalog.count(*)::int
@@ -128,7 +128,7 @@ select is(
                   ('public.user_has_role(uuid, text)')) as f(sig)
      where pg_catalog.has_function_privilege('authenticated', f.sig, 'EXECUTE')),
     3,
-    'the three unguarded role readers are still open to authenticated, and are not this PR'
+    'the three role readers are still executable by authenticated; their grants are not this PR'
 );
 
 select * from finish();
