@@ -37,8 +37,10 @@
 -- touched here, because the fix is not the same: `get_user_roles_with_names` has
 -- a live caller in `RoleService.getUserRoles`, which `UserService` calls per user
 -- while building the admin user list, so revoking it would break the RBAC screen.
--- Closing that family needs a self-or-admin check inside the functions, which is
--- a behaviour change and belongs in its own migration with its own tests.
+-- Closing that family needs a check inside the functions, and it cannot be
+-- admins-only: `users` lets `role.read` holders list everyone, and `boss_admin`
+-- holds `role.read` without being an admin. That is a behaviour change and
+-- belongs in its own migration with its own tests.
 --
 -- This migration is the part with no such question attached: an unused grant on a
 -- hook helper, removed so it matches the two functions beside it.
