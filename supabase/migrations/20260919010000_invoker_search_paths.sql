@@ -1,18 +1,19 @@
 -- Close the search_path on the five functions that are not SECURITY DEFINER.
 --
--- The #772 sweep and its parts closed `SET search_path` on SECURITY DEFINER
--- functions, most recently the five plugin-store ones. Supabase's advisor
--- (lint 0011, function_search_path_mutable) does not scope itself that way: it
--- reports every function in an exposed schema with a mutable search_path, and
--- against a migrated database it returns ten. Five are the definer functions
--- that sweep covers. These are the other five, and every one of them is
--- SECURITY INVOKER, which is why a definer-scoped audit did not list them.
+-- The #772 sweep closes `SET search_path` on SECURITY DEFINER functions:
+-- 20260916130000 and 20260916140000 are merged, and #968 is the part for the
+-- five plugin-store ones. Supabase's advisor (lint 0011,
+-- function_search_path_mutable) does not scope itself that way: it reports
+-- every function in an exposed schema with a mutable search_path, and against a
+-- migrated database it returns ten. Five are the definer functions #968 closes.
+-- These are the other five, and every one of them is SECURITY INVOKER, which is
+-- why a definer-scoped audit did not list them.
 --
--- Read from the catalog rather than the migration sources, because the sources
--- are not a reliable answer to this question: the same audit run over the SQL
--- files with grep produced three different wrong counts, from quoted
--- identifiers, from aligned whitespace, and from functions redefined in a later
--- migration.
+-- Read from the catalog rather than the migration sources, because grep over
+-- the SQL files is not a reliable answer here. While auditing this it gave three
+-- wrong counts: two for RLS coverage, from quoted identifiers and then from
+-- aligned whitespace, and one for this very question, from functions redefined
+-- in a later migration. The catalog was right each time.
 --
 --   proname                                    prosecdef  provolatile  proconfig
 --   check_api_key_limit                        f          v            (none)
@@ -33,8 +34,8 @@
 -- one place in this schema where an unqualified name would be resolved with a
 -- privileged role's path while deciding an authorization claim.
 --
--- The second is drift. 134 definer functions carry the clause and the
--- convention has been enforced by three migrations; leaving five without it
+-- The second is drift. 134 definer functions carry the clause, and two merged
+-- migrations have swept the stragglers since; leaving five without it
 -- means the advisor never reads clean, and a lint nobody expects to be empty
 -- stops being read at all.
 --
