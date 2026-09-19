@@ -1,0 +1,111 @@
+name: splinter probe
+
+# Scratch workflow. Applies the migrations, runs the real pgTAP suite, then runs
+# the Supabase schema linter and asserts the InitPlan lint is empty. Never
+# intended for upstream.
+
+on:
+  push:
+    branches:
+      - 'probe/**'
+
+jobs:
+  verify:
+    name: migrate, test, lint
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Setup Supabase CLI
+        uses: supabase/setup-cli@v2
+        with:
+          version: 2.109.0
+
+      - name: Start local Postgres (applies migrations)
+        run: supabase db start
+
+      - name: Prepare DB access tests
+        run: |
+          python3 scripts/test/prepare-db-access-tests.py
+          python3 scripts/test/prepare-db-access-tests.py --check
+
+      - name: Prepare migration fixtures
+        run: python3 scripts/test/prepare-totp-migration-fixtures.py
+
+      - name: Run the pgTAP suite
+        run: supabase test db
+
+      - name: Fetch splinter
+        run: |
+          curl -sSfL https://raw.githubusercontent.com/supabase/splinter/main/splinter.sql -o /tmp/splinter.sql
+          sha256sum /tmp/splinter.sql
+
+      - name: Run splinter
+        run: |
+          psql "$DB_URL" -v ON_ERROR_STOP=1 --csv \
+            -c "set pgrst.db_schemas = 'public,graphql_public';" \
+            -f /tmp/splinter.sql > /tmp/splinter.csv
+        env:
+          DB_URL: postgresql://postgres:postgres@127.0.0.1:54322/postgres
+
+      - name: Assert the InitPlan lint is empty
+        run: python3 scripts/splinter-probe-report.py /tmp/splinter.csv --expect function_search_path_mutable=10 --expect auth_rls_initplan=68
+
+      - name: Measure the hoist
+        run: psql "$DB_URL" -v ON_ERROR_STOP=1 -f scripts/measure-initplan.sql
+        env:
+          DB_URL: postgresql://postgres:postgres@127.0.0.1:54322/postgres
+
+
+      - name: Dump function definitions and grants
+        run: |
+          psql "$DB_URL" -v ON_ERROR_STOP=1 --csv -c "
+            select n.nspname as schemaname,
+                   p.proname,
+                   pg_get_function_identity_arguments(p.oid) as args,
+                   p.prosecdef,
+                   p.provolatile,
+                   l.lanname,
+                   coalesce(array_to_string(p.proconfig, '|'), '') as config,
+                   pg_get_functiondef(p.oid) as def
+            from pg_proc p
+            join pg_namespace n on n.oid = p.pronamespace
+            join pg_language l on l.oid = p.prolang
+            where n.nspname = 'public' and p.prokind in ('f','p')
+            order by p.proname;" > /tmp/functions.csv
+          echo "functions: $(($(wc -l < /tmp/functions.csv) - 1))"
+        env:
+          DB_URL: postgresql://postgres:postgres@127.0.0.1:54322/postgres
+
+      - name: Dump routine grants
+        run: |
+          psql "$DB_URL" -v ON_ERROR_STOP=1 --csv -c "
+            select p.proname,
+                   pg_get_function_identity_arguments(p.oid) as args,
+                   p.prosecdef,
+                   coalesce(r.rolname, 'PUBLIC') as grantee,
+                   a.privilege_type
+            from pg_proc p
+            join pg_namespace n on n.oid = p.pronamespace
+            cross join lateral aclexplode(coalesce(p.proacl, acldefault('f', p.proowner))) a
+            left join pg_roles r on r.oid = a.grantee
+            where n.nspname = 'public' and a.privilege_type = 'EXECUTE'
+            order by p.proname;" > /tmp/grants.csv
+          echo "grant rows: $(($(wc -l < /tmp/grants.csv) - 1))"
+        env:
+          DB_URL: postgresql://postgres:postgres@127.0.0.1:54322/postgres
+
+      - name: Upload raw findings
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: splinter-findings
+          path: |
+            /tmp/splinter.csv
+            /tmp/functions.csv
+            /tmp/grants.csv
+
+      - name: Stop Supabase
+        if: always()
+        run: supabase stop --no-backup || true
