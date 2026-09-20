@@ -15,7 +15,7 @@
 -- per row, because their answer differs per row.
 
 begin;
-select plan(9);
+select plan(8);
 
 -- ---------------------------------------------------------------------------
 -- 1: no statement-constant call is left un-hoisted anywhere in the schema.
@@ -81,9 +81,10 @@ select is_empty(
 -- ---------------------------------------------------------------------------
 -- 4-6: nothing was lost while restating the policies.
 --
--- ALTER POLICY carries the command and the TO roles over, but that is exactly
--- the kind of thing worth pinning rather than trusting, because a later switch
--- to DROP and CREATE would have to restate them.
+-- ALTER POLICY carries the command, the TO roles and PERMISSIVE/RESTRICTIVE
+-- over, but that is exactly the kind of thing worth pinning rather than
+-- trusting, because a later switch to DROP and CREATE would have to restate
+-- all three.
 -- ---------------------------------------------------------------------------
 select is(
     (select count(*)::int from pg_policy p
@@ -191,136 +192,160 @@ select is_empty(
 -- policy rather than in aggregate: PostgreSQL stores an unscoped policy as the
 -- single oid 0, not as an empty array, so a check for '{}' would be vacuous
 -- and would pass whatever happened here.
+--
+-- The command and PERMISSIVE/RESTRICTIVE are pinned in the same values list,
+-- for the same reason ALTER cannot change either one on this migration's own
+-- statements. That makes today's rewrite trivially safe on both; the pin is
+-- for the regression this migration cannot cause but a later DROP/CREATE
+-- could - most sharply, AS RESTRICTIVE silently becoming the PERMISSIVE
+-- default, which widens access without touching a single role.
 select is_empty(
-    $$ select want.tbl, want.pol, want.roles as expected, got.actual
+    $$ select want.tbl, want.pol,
+              want.roles as expected_roles, got.actual_roles,
+              want.cmd as expected_cmd, got.actual_cmd,
+              want.permissive as expected_permissive, got.actual_permissive
        from (values
-    ('organisation_domains', 'Service role full access to organisation domains', 'PUBLIC'),
-    ('organisation_handoff_tokens', 'Service role full access to handoff tokens', 'PUBLIC'),
-    ('organisation_invite_redemptions', 'Service role full access to invite redemptions', 'PUBLIC'),
-    ('organisation_invite_redemptions', 'Users can view their own invite redemptions', 'authenticated'),
-    ('organisation_invites', 'Service role full access to organisation invites', 'PUBLIC'),
-    ('organisation_members', 'Organisation members can view the roster', 'authenticated'),
-    ('organisation_members', 'Service role full access to organisation members', 'PUBLIC'),
-    ('organisation_members', 'Users can view their own memberships', 'authenticated'),
-    ('organisation_requests', 'Requesters can view their own organisation requests', 'authenticated'),
-    ('organisation_requests', 'Reviewers can view all organisation requests', 'authenticated'),
-    ('organisation_requests', 'Service role full access to organisation requests', 'PUBLIC'),
-    ('organisation_roles', 'Service role full access to organisation roles', 'PUBLIC'),
-    ('organisations', 'Organisation reviewers can view all organisations', 'authenticated'),
-    ('organisations', 'Service role full access to organisations', 'PUBLIC'),
-    ('passkey_challenges', 'Allow session-based access for mobile flows', 'PUBLIC'),
-    ('passkey_challenges', 'Service role can access all challenges', 'PUBLIC'),
-    ('passkey_challenges', 'Users can insert their own challenges', 'PUBLIC'),
-    ('passkey_challenges', 'Users can view their own challenges', 'PUBLIC'),
-    ('permissions', 'Admins can create permissions', 'PUBLIC'),
-    ('permissions', 'Admins can delete non-system permissions', 'PUBLIC'),
-    ('permissions', 'Admins can update non-system permissions', 'PUBLIC'),
-    ('permissions', 'Service role full access to permissions', 'PUBLIC'),
-    ('plugin_api_key_logs', 'Users can view own API key logs', 'PUBLIC'),
-    ('plugin_api_keys', 'Users can create own API keys', 'PUBLIC'),
-    ('plugin_api_keys', 'Users can delete own API keys', 'PUBLIC'),
-    ('plugin_api_keys', 'Users can update own API keys', 'PUBLIC'),
-    ('plugin_api_keys', 'Users can view own API keys', 'PUBLIC'),
-    ('plugin_permissions', 'role.read can view plugin permission provenance', 'authenticated'),
-    ('plugin_screenshots', 'Authors can manage own plugin screenshots', 'PUBLIC'),
-    ('plugin_screenshots', 'Users with plugins.admin.delete can manage all screenshots', 'PUBLIC'),
-    ('plugin_screenshots', 'Users with plugins.admin.view can view all screenshots', 'PUBLIC'),
-    ('plugin_tags', 'Authors can manage own plugin tags', 'PUBLIC'),
-    ('plugin_tags', 'Users with plugins.admin.delete can manage all tags', 'PUBLIC'),
-    ('plugin_tags', 'Users with plugins.admin.view can view all tags', 'PUBLIC'),
-    ('plugin_versions', 'Authors can add versions', 'PUBLIC'),
-    ('plugin_versions', 'Authors can view own plugin versions', 'PUBLIC'),
-    ('plugin_versions', 'Users with plugins.admin.delete can delete versions', 'PUBLIC'),
-    ('plugin_versions', 'Users with plugins.admin.view can view all versions', 'PUBLIC'),
-    ('plugins', 'Authorised publishers can create plugins', 'authenticated'),
-    ('plugins', 'Authors and organisation admins can update plugins', 'authenticated'),
-    ('plugins', 'Authors can delete own plugins', 'PUBLIC'),
-    ('plugins', 'Authors can view own plugins', 'PUBLIC'),
-    ('plugins', 'Users with plugins.admin.delete can delete any plugin', 'PUBLIC'),
-    ('plugins', 'Users with plugins.admin.publish can update any plugin', 'PUBLIC'),
-    ('plugins', 'Users with plugins.admin.view can view all plugins', 'PUBLIC'),
-    ('reserved_email_domains', 'Service role full access to reserved email domains', 'PUBLIC'),
-    ('role_hierarchy', 'Admins can manage role hierarchy', 'PUBLIC'),
-    ('role_hierarchy', 'Service role full access to role hierarchy', 'PUBLIC'),
-    ('role_permissions', 'Admins can manage role permissions', 'PUBLIC'),
-    ('role_permissions', 'Service role full access to role_permissions', 'PUBLIC'),
-    ('roles', 'Admins can create roles', 'PUBLIC'),
-    ('roles', 'Admins can delete non-system roles', 'PUBLIC'),
-    ('roles', 'Admins can update non-system roles', 'PUBLIC'),
-    ('roles', 'Service role full access to roles', 'PUBLIC'),
-    ('secret_access_log', 'secret_access_log_select', 'PUBLIC'),
-    ('secret_metadata', 'Users can create own secret metadata', 'PUBLIC'),
-    ('secret_metadata', 'Users can delete own secret metadata', 'PUBLIC'),
-    ('secret_metadata', 'Users can update own secret metadata', 'PUBLIC'),
-    ('secret_metadata', 'Users can view own secret metadata', 'PUBLIC'),
-    ('secret_shares', 'secret_shares_select', 'PUBLIC'),
-    ('secret_tags', 'Users can create own secret tags', 'PUBLIC'),
-    ('secret_tags', 'Users can delete own secret tags', 'PUBLIC'),
-    ('secret_tags', 'Users can view own secret tags', 'PUBLIC'),
-    ('secrets', 'Owners and organisation admins can delete secrets', 'PUBLIC'),
-    ('secrets', 'Owners and organisation admins can update secrets', 'PUBLIC'),
-    ('secrets', 'Users can create own or organisation secrets', 'PUBLIC'),
-    ('secrets', 'Users can view own or organisation secrets', 'PUBLIC'),
-    ('user_passkeys', 'Service role can access all passkeys', 'PUBLIC'),
-    ('user_passkeys', 'Users can delete their own passkeys', 'PUBLIC'),
-    ('user_passkeys', 'Users can insert their own passkeys', 'PUBLIC'),
-    ('user_passkeys', 'Users can update their own passkeys', 'PUBLIC'),
-    ('user_passkeys', 'Users can view their own passkeys', 'PUBLIC'),
-    ('user_roles', 'Admins can assign roles', 'PUBLIC'),
-    ('user_roles', 'Admins can remove roles', 'PUBLIC'),
-    ('user_roles', 'Admins can view all roles', 'PUBLIC'),
-    ('user_roles', 'Service role full access to user_roles', 'PUBLIC'),
-    ('user_roles', 'Users can view their own roles', 'PUBLIC'),
-    ('users', 'Privileged users can read all users', 'PUBLIC'),
-    ('users', 'Users can read own data', 'PUBLIC'),
-    ('users', 'Users can update own data', 'PUBLIC')
-       ) as want(tbl, pol, roles)
+    ('organisation_domains', 'Service role full access to organisation domains', 'PUBLIC', 'ALL', true),
+    ('organisation_handoff_tokens', 'Service role full access to handoff tokens', 'PUBLIC', 'ALL', true),
+    ('organisation_invite_redemptions', 'Service role full access to invite redemptions', 'PUBLIC', 'ALL', true),
+    ('organisation_invite_redemptions', 'Users can view their own invite redemptions', 'authenticated', 'SELECT', true),
+    ('organisation_invites', 'Service role full access to organisation invites', 'PUBLIC', 'ALL', true),
+    ('organisation_members', 'Organisation members can view the roster', 'authenticated', 'SELECT', true),
+    ('organisation_members', 'Service role full access to organisation members', 'PUBLIC', 'ALL', true),
+    ('organisation_members', 'Users can view their own memberships', 'authenticated', 'SELECT', true),
+    ('organisation_requests', 'Requesters can view their own organisation requests', 'authenticated', 'SELECT', true),
+    ('organisation_requests', 'Reviewers can view all organisation requests', 'authenticated', 'SELECT', true),
+    ('organisation_requests', 'Service role full access to organisation requests', 'PUBLIC', 'ALL', true),
+    ('organisation_roles', 'Service role full access to organisation roles', 'PUBLIC', 'ALL', true),
+    ('organisations', 'Organisation reviewers can view all organisations', 'authenticated', 'SELECT', true),
+    ('organisations', 'Service role full access to organisations', 'PUBLIC', 'ALL', true),
+    ('passkey_challenges', 'Allow session-based access for mobile flows', 'PUBLIC', 'SELECT', true),
+    ('passkey_challenges', 'Service role can access all challenges', 'PUBLIC', 'ALL', true),
+    ('passkey_challenges', 'Users can insert their own challenges', 'PUBLIC', 'INSERT', true),
+    ('passkey_challenges', 'Users can view their own challenges', 'PUBLIC', 'SELECT', true),
+    ('permissions', 'Admins can create permissions', 'PUBLIC', 'INSERT', true),
+    ('permissions', 'Admins can delete non-system permissions', 'PUBLIC', 'DELETE', true),
+    ('permissions', 'Admins can update non-system permissions', 'PUBLIC', 'UPDATE', true),
+    ('permissions', 'Service role full access to permissions', 'PUBLIC', 'ALL', true),
+    ('plugin_api_key_logs', 'Users can view own API key logs', 'PUBLIC', 'SELECT', true),
+    ('plugin_api_keys', 'Users can create own API keys', 'PUBLIC', 'INSERT', true),
+    ('plugin_api_keys', 'Users can delete own API keys', 'PUBLIC', 'DELETE', true),
+    ('plugin_api_keys', 'Users can update own API keys', 'PUBLIC', 'UPDATE', true),
+    ('plugin_api_keys', 'Users can view own API keys', 'PUBLIC', 'SELECT', true),
+    ('plugin_permissions', 'role.read can view plugin permission provenance', 'authenticated', 'SELECT', true),
+    ('plugin_screenshots', 'Authors can manage own plugin screenshots', 'PUBLIC', 'ALL', true),
+    ('plugin_screenshots', 'Users with plugins.admin.delete can manage all screenshots', 'PUBLIC', 'ALL', true),
+    ('plugin_screenshots', 'Users with plugins.admin.view can view all screenshots', 'PUBLIC', 'SELECT', true),
+    ('plugin_tags', 'Authors can manage own plugin tags', 'PUBLIC', 'ALL', true),
+    ('plugin_tags', 'Users with plugins.admin.delete can manage all tags', 'PUBLIC', 'ALL', true),
+    ('plugin_tags', 'Users with plugins.admin.view can view all tags', 'PUBLIC', 'SELECT', true),
+    ('plugin_versions', 'Authors can add versions', 'PUBLIC', 'INSERT', true),
+    ('plugin_versions', 'Authors can view own plugin versions', 'PUBLIC', 'SELECT', true),
+    ('plugin_versions', 'Users with plugins.admin.delete can delete versions', 'PUBLIC', 'DELETE', true),
+    ('plugin_versions', 'Users with plugins.admin.view can view all versions', 'PUBLIC', 'SELECT', true),
+    ('plugins', 'Authorised publishers can create plugins', 'authenticated', 'INSERT', true),
+    ('plugins', 'Authors and organisation admins can update plugins', 'authenticated', 'UPDATE', true),
+    ('plugins', 'Authors can delete own plugins', 'PUBLIC', 'DELETE', true),
+    ('plugins', 'Authors can view own plugins', 'PUBLIC', 'SELECT', true),
+    ('plugins', 'Users with plugins.admin.delete can delete any plugin', 'PUBLIC', 'DELETE', true),
+    ('plugins', 'Users with plugins.admin.publish can update any plugin', 'PUBLIC', 'UPDATE', true),
+    ('plugins', 'Users with plugins.admin.view can view all plugins', 'PUBLIC', 'SELECT', true),
+    ('reserved_email_domains', 'Service role full access to reserved email domains', 'PUBLIC', 'ALL', true),
+    ('role_hierarchy', 'Admins can manage role hierarchy', 'PUBLIC', 'ALL', true),
+    ('role_hierarchy', 'Service role full access to role hierarchy', 'PUBLIC', 'ALL', true),
+    ('role_permissions', 'Admins can manage role permissions', 'PUBLIC', 'ALL', true),
+    ('role_permissions', 'Service role full access to role_permissions', 'PUBLIC', 'ALL', true),
+    ('roles', 'Admins can create roles', 'PUBLIC', 'INSERT', true),
+    ('roles', 'Admins can delete non-system roles', 'PUBLIC', 'DELETE', true),
+    ('roles', 'Admins can update non-system roles', 'PUBLIC', 'UPDATE', true),
+    ('roles', 'Service role full access to roles', 'PUBLIC', 'ALL', true),
+    ('secret_access_log', 'secret_access_log_select', 'PUBLIC', 'SELECT', true),
+    ('secret_metadata', 'Users can create own secret metadata', 'PUBLIC', 'INSERT', true),
+    ('secret_metadata', 'Users can delete own secret metadata', 'PUBLIC', 'DELETE', true),
+    ('secret_metadata', 'Users can update own secret metadata', 'PUBLIC', 'UPDATE', true),
+    ('secret_metadata', 'Users can view own secret metadata', 'PUBLIC', 'SELECT', true),
+    ('secret_shares', 'secret_shares_select', 'PUBLIC', 'SELECT', true),
+    ('secret_tags', 'Users can create own secret tags', 'PUBLIC', 'INSERT', true),
+    ('secret_tags', 'Users can delete own secret tags', 'PUBLIC', 'DELETE', true),
+    ('secret_tags', 'Users can view own secret tags', 'PUBLIC', 'SELECT', true),
+    ('secrets', 'Owners and organisation admins can delete secrets', 'PUBLIC', 'DELETE', true),
+    ('secrets', 'Owners and organisation admins can update secrets', 'PUBLIC', 'UPDATE', true),
+    ('secrets', 'Users can create own or organisation secrets', 'PUBLIC', 'INSERT', true),
+    ('secrets', 'Users can view own or organisation secrets', 'PUBLIC', 'SELECT', true),
+    ('user_passkeys', 'Service role can access all passkeys', 'PUBLIC', 'ALL', true),
+    ('user_passkeys', 'Users can delete their own passkeys', 'PUBLIC', 'DELETE', true),
+    ('user_passkeys', 'Users can insert their own passkeys', 'PUBLIC', 'INSERT', true),
+    ('user_passkeys', 'Users can update their own passkeys', 'PUBLIC', 'UPDATE', true),
+    ('user_passkeys', 'Users can view their own passkeys', 'PUBLIC', 'SELECT', true),
+    ('user_roles', 'Admins can assign roles', 'PUBLIC', 'INSERT', true),
+    ('user_roles', 'Admins can remove roles', 'PUBLIC', 'DELETE', true),
+    ('user_roles', 'Admins can view all roles', 'PUBLIC', 'SELECT', true),
+    ('user_roles', 'Service role full access to user_roles', 'PUBLIC', 'ALL', true),
+    ('user_roles', 'Users can view their own roles', 'PUBLIC', 'SELECT', true),
+    ('users', 'Privileged users can read all users', 'PUBLIC', 'SELECT', true),
+    ('users', 'Users can read own data', 'PUBLIC', 'SELECT', true),
+    ('users', 'Users can update own data', 'PUBLIC', 'UPDATE', true)
+       ) as want(tbl, pol, roles, cmd, permissive)
        join lateral (
          select coalesce(
                   (select string_agg(r.rolname, ',' order by r.rolname)
                      from pg_roles r where r.oid = any (p.polroles)),
-                  'PUBLIC') as actual
+                  'PUBLIC') as actual_roles,
+                case p.polcmd
+                  when '*' then 'ALL'
+                  when 'r' then 'SELECT'
+                  when 'a' then 'INSERT'
+                  when 'w' then 'UPDATE'
+                  when 'd' then 'DELETE'
+                end as actual_cmd,
+                p.polpermissive as actual_permissive
          from pg_policy p
          join pg_class c on c.oid = p.polrelid
          join pg_namespace n on n.oid = c.relnamespace
          where n.nspname = 'public' and c.relname = want.tbl
            and p.polname = want.pol
        ) got on true
-       where got.actual is distinct from want.roles $$,
-    'every rewritten policy still applies to exactly the roles it did before'
+       where got.actual_roles is distinct from want.roles
+          or got.actual_cmd is distinct from want.cmd
+          or got.actual_permissive is distinct from want.permissive $$,
+    'every rewritten policy still applies to exactly the roles, command and permissiveness it did before'
 );
 
 -- ---------------------------------------------------------------------------
--- 7-9: the rewrite still admits and denies the same rows.
+-- 7-8: the rewrite still admits and denies the same rows.
 --
--- `users` is the smallest policy set that covers both halves: a user reads their
--- own row through `(select auth.uid()) = id`, and an admin reads every row
--- through the hoisted `is_user_admin(auth.uid())`.
+-- `users` carries both hoisted shapes at once: "Users can read own data" is the
+-- `(select auth.uid()) = id` hoist, and "Privileged users can read all users" is
+-- the `(select auth.jwt())` hoist. A catalog read cannot tell "the expression
+-- still says SELECT somewhere" from "the rewrite changed which rows this policy
+-- admits", so this runs two real SELECTs under `authenticated`, the same role
+-- PostgREST uses, against two real fixture rows.
 -- ---------------------------------------------------------------------------
-select lives_ok(
-    $$ select set_config('request.jwt.claims', '{"role":"authenticated"}', true) $$,
-    'an authenticated claim set can be installed'
-);
+insert into auth.users (id, email) values
+    ('d1987000-0000-4000-8000-000000000001', 'plain@pgtap.test'),
+    ('d1987000-0000-4000-8000-000000000002', 'admin@pgtap.test');
 
-select ok(
-    (select count(*) from pg_policy p
-     join pg_class c on c.oid = p.polrelid
-     join pg_namespace n on n.oid = c.relnamespace
-     where n.nspname = 'public' and c.relname = 'users') >= 3,
-    'the users table keeps its own-row and privileged-read policies'
+select set_config('request.jwt.claims',
+    '{"sub":"d1987000-0000-4000-8000-000000000001","role":"authenticated"}', true);
+set local role authenticated;
+select is(
+    (select count(*)::int from public.users
+     where id in ('d1987000-0000-4000-8000-000000000001', 'd1987000-0000-4000-8000-000000000002')),
+    1,
+    'a plain user sees only their own row through the hoisted own-row policy'
 );
+reset role;
 
-select ok(
-    (select bool_and(
-        pg_get_expr(p.polqual, p.polrelid) ~ 'SELECT'
-     )
-     from pg_policy p
-     join pg_class c on c.oid = p.polrelid
-     join pg_namespace n on n.oid = c.relnamespace
-     where n.nspname = 'public' and c.relname = 'users'
-       and pg_get_expr(p.polqual, p.polrelid) is not null),
-    'every users policy now evaluates its session call once per statement'
+select set_config('request.jwt.claims',
+    '{"sub":"d1987000-0000-4000-8000-000000000002","role":"authenticated","is_admin":true}', true);
+set local role authenticated;
+select is(
+    (select count(*)::int from public.users
+     where id in ('d1987000-0000-4000-8000-000000000001', 'd1987000-0000-4000-8000-000000000002')),
+    2,
+    'an admin claim sees every row through the hoisted privileged-read policy'
 );
+reset role;
 
 select * from finish();
 rollback;
