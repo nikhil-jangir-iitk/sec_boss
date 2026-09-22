@@ -81,7 +81,7 @@ The KDoc on `getFormFieldInfoFromJS` records the one behaviour worth knowing at 
 describes whatever has focus, so a page that calls `preventDefault()` on mousedown can leave focus
 elsewhere and the menu then describes the previously focused field.
 
-### Two things that are present but not wired
+### Two things that are present but not fully wired
 
 `FormFieldDetector` installs `window.__BOSS_FOCUSED_FIELD` and `window.__BOSS_GET_FOCUSED_FIELD`
 on every main-frame navigation, and defines `getCurrentFocusedField` and `findAllFormFields` to
@@ -165,13 +165,18 @@ host-side dialogs and the host-side fill went with them when the feature moved i
 - [ ] Clicking a secret fills both username and password
 - [ ] Filled values trigger form validation
 
-**Domain Matching**:
+**Domain Matching** (these are `WebsiteMatchingUtil`'s scoring rules; the matching the
+app actually ships is the browser plugin's):
 - [ ] Exact domain match (google.com)
 - [ ] Subdomain match (login.google.com)
 - [ ] A secret saved for accounts.google.com is NOT suggested on login.google.com
 - [ ] A secret saved for google.com IS suggested on login.google.com (save it against the
       parent domain to share it with those subdomains)
-- [ ] Two-part TLD handling (example.co.uk)
+- [ ] Sibling hosts under a two-part TLD do not match: a secret saved for example.co.uk is
+      NOT suggested on google.co.uk (pinned by `WebsiteMatchingBoundaryRegressionTest`);
+      there is no registrable-domain or public-suffix guessing
+- [ ] A secret saved against a broad suffix (co.uk) IS suggested on every host under it:
+      the scorer does not validate public suffixes, so save it against the specific host
 - [ ] Localhost handling
 
 **Secret Management**:
@@ -290,6 +295,6 @@ The rest of the implementation is in the browser plugin, in the `boss-plugin-flu
 
 ---
 
-**Last Updated**: 2025-10-26
+**Last Updated**: 2026-09-22
 **Author**: Claude Code
-**Reviewer**: (Pending code review)
+**Reviewer**: swept 2026-09-22 (codeq)
