@@ -16,12 +16,21 @@
 -- widens access.
 --
 -- THE RULE, and it is the whole safety argument: a call may be hoisted only if
--- its result is constant for the entire statement. That is true of a call with
--- no arguments, and of a call whose arguments are literals or are themselves
--- statement-constant. It is false of a call that takes a column, because the
--- answer then differs per row and hoisting it would return one row's answer for
--- every row. All 131 call sites in the schema's policies were classified
--- against that rule from the catalog, not from the migration sources.
+-- its result is constant for the entire statement. That takes two things.
+-- The function must be STABLE or IMMUTABLE: a VOLATILE one may answer
+-- differently on every call, and for it the number of evaluations is the
+-- behaviour, so hoisting would change it even with no arguments. And its
+-- arguments must not vary per row: none, literals, or arguments that are
+-- themselves statement-constant. A call that takes a column fails the second
+-- test, because the answer then differs per row and hoisting it would return
+-- one row's answer for every row. All 131 call sites in the schema's policies
+-- were classified against that rule from the catalog, not from the migration
+-- sources, and the four functions hoisted here are all STABLE; the pgTAP suite
+-- pins that.
+--
+-- is_user_admin(auth.uid()) is the one hoisted call that takes an argument,
+-- and it is not a counter-example to the rule: its only argument is
+-- auth.uid(), which is itself statement-constant.
 --
 -- What is hoisted, counted as the OUTERMOST call at each site:
 --
