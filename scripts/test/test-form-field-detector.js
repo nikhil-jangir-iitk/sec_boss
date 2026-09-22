@@ -235,7 +235,6 @@ function newPage() {
     },
     fire,
     run: (js) => vm.runInContext(js, sandbox),
-
     runTimers: () => {
       const queued = timers.splice(0, timers.length);
       const errors = [];
@@ -365,6 +364,7 @@ console.log('\nre-injection releases a retained field the route change detached'
   const pwd = p.append(form, p.el('input', { type: 'password', name: 'pwd', value: 'shh' }));
   p.focus(pwd);
   check('the live field is retained while it is focused', p.window.__BOSS_FOCUSED_FIELD === pwd);
+  check('and the live field reads as connected', pwd.isConnected === true);
 
   // The route change: the old form leaves the document, and the re-injection lands.
   form.parentElement.children.length = 0;
@@ -372,6 +372,7 @@ console.log('\nre-injection releases a retained field the route change detached'
   p.document.activeElement = p.document._root;
   p.run(inject);
 
+  eq('the detached field reads as not connected', pwd.isConnected, false);
   eq('the detached field is released on the re-injection', p.window.__BOSS_FOCUSED_FIELD, null);
   eq('and the accessor no longer serves its value', p.window.__BOSS_GET_FOCUSED_FIELD(), null);
 }
