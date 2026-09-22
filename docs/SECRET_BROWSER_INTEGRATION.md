@@ -58,8 +58,14 @@ document used to describe are gone, and two of the three survivors have no produ
 
 1. `BrowserHandleImpl` handles the native context-menu event. Chromium reports the click target,
    so nothing is injected for this.
-2. `getFormFieldInfoFromJS` runs a self-contained script over `document.activeElement` and returns
-   a `FormFieldInfo`, or null when the click was not on an `INPUT` or `TEXTAREA`. It reads
+2. The lookup runs only when `BrowserContextMenuInfo.isEditable` is true, and that flag is
+   `isMainFrame && contentTypes.contains(EDITABLE)`: Chromium resolves it against the click
+   target, and it is main-frame-only, so a right-click on an input inside an iframe never
+   attempts the lookup at all - the menu arrives with `formFieldInfo = null` not because the
+   lookup failed but because it was never tried (the `iFrame support` item under Technical
+   Improvements is the open work). When it does run, `getFormFieldInfoFromJS` executes a
+   self-contained script over `document.activeElement` and returns a `FormFieldInfo`, or null
+   when the click was not on an `INPUT` or `TEXTAREA`. It reads
    `document.activeElement` directly and does **not** use the globals
    `FormFieldDetector` installs. There are more null cases than that: the lookup races a
    500 ms timeout, and on timeout the menu is delivered with `formFieldInfo = null` - the
