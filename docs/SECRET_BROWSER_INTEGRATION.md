@@ -50,7 +50,7 @@ document used to describe are gone, and two of the three survivors have no produ
 | the published field type | `FormFieldInfo` / `FormFieldType` in `plugin-platform/plugin-api-browser/src/commonMain/kotlin/ai/rever/boss/plugin/browser/BrowserHandle.kt` | live |
 | the menu carrier | `BrowserContextMenuInfo.formFieldInfo`, same file | live |
 | injected page helper | `FormFieldDetector.injectFormDetectionScript` (`.../plugin/browser/FormFieldDetector.kt`) | injected on every navigation; its readers are dead, see below |
-| domain scoring | `WebsiteMatchingUtil` (`composeApp/src/commonMain/kotlin/ai/rever/boss/utils/WebsiteMatchingUtil.kt`) | no production caller; kept honest by its own tests |
+| domain scoring | `WebsiteMatchingUtil` (`composeApp/src/commonMain/kotlin/ai/rever/boss/utils/WebsiteMatchingUtil.kt`) | no production caller; kept honest by four regression tests |
 | the old view model | `BrowserSecretIntegrationViewModel` (`.../components/plugin/tab_types/fluck/`) | declared, never constructed |
 
 ### How a right-click reaches a plugin today
@@ -60,12 +60,14 @@ document used to describe are gone, and two of the three survivors have no produ
 2. `getFormFieldInfoFromJS` runs a self-contained script over `document.activeElement` and returns
    a `FormFieldInfo`, or null when the click was not on an `INPUT` or `TEXTAREA`. It reads
    `document.activeElement` directly and does **not** use the globals
-   `FormFieldDetector` installs.
+   `FormFieldDetector` installs. There is a third null case a plugin author should expect:
+   the lookup races a 500 ms timeout, and on timeout the menu is delivered with
+   `formFieldInfo = null` - the menu opens without the auto-fill entries rather than never opening.
 3. The result is attached as `BrowserContextMenuInfo.formFieldInfo` and delivered to whichever
    plugin registered the context-menu callback.
 4. Everything after that - matching a stored secret to the site, drawing the menu, the selection
    dialog, and writing the value into the page - belongs to the browser plugin, which lives in
-   the `boss_plugins` repository rather than here.
+   the `boss-plugin-fluck-browser` repository rather than here.
 
 The KDoc on `getFormFieldInfoFromJS` records the one behaviour worth knowing at this boundary: it
 describes whatever has focus, so a page that calls `preventDefault()` on mousedown can leave focus
@@ -81,8 +83,9 @@ likewise a separate pair of types from the published `FormFieldInfo` and `FormFi
 plugins actually receive; do not confuse the two when reading this file.
 
 `WebsiteMatchingUtil` is reached only from `BrowserSecretIntegrationViewModel`, which nothing
-constructs. Its scoring rules are still pinned by `WebsiteMatchingAuthorRegressionTest`, so the
-behaviour is specified even though no caller depends on it.
+constructs. Its scoring rules are still pinned by `WebsiteMatchingAuthorRegressionTest`,
+`WebsiteMatchingBoundaryRegressionTest`, `WebsiteMatchingHostnameRegressionTest` and
+`WebsiteMatchingUtilTest`, so the behaviour is specified even though no caller depends on it.
 
 ### Gone
 
@@ -157,7 +160,9 @@ host-side dialogs and the host-side fill went with them when the feature moved i
 **Domain Matching**:
 - [ ] Exact domain match (google.com)
 - [ ] Subdomain match (login.google.com)
-- [ ] Common subdomain removal (accounts.google.com → google.com)
+- [ ] A secret saved for accounts.google.com is NOT suggested on login.google.com
+- [ ] A secret saved for google.com IS suggested on login.google.com (save it against the
+      parent domain to share it with those subdomains)
 - [ ] Two-part TLD handling (example.co.uk)
 - [ ] Localhost handling
 
@@ -258,6 +263,7 @@ host-side dialogs and the host-side fill went with them when the feature moved i
 Still here:
 
 - `composeApp/src/desktopMain/kotlin/ai/rever/boss/plugin/browser/BrowserHandleImpl.kt` - the live path, `getFormFieldInfoFromJS`
+- `composeApp/src/desktopMain/kotlin/ai/rever/boss/plugin/browser/FormFieldInfoJson.kt` - parses the field info that path returns, `FormFieldInfoJsonTest` pins the heuristics
 - `plugin-platform/plugin-api-browser/src/commonMain/kotlin/ai/rever/boss/plugin/browser/BrowserHandle.kt` - `FormFieldInfo`, `FormFieldType`, `BrowserContextMenuInfo.formFieldInfo`
 - `composeApp/src/desktopMain/kotlin/ai/rever/boss/plugin/browser/FormFieldDetector.kt` - injected page helper, readers unused
 - `composeApp/src/commonMain/kotlin/ai/rever/boss/utils/WebsiteMatchingUtil.kt` - no production caller
@@ -267,7 +273,7 @@ Gone, and named here only so a search for them stops at this line rather than in
 `FormFieldInjector.kt`, `SecretContextMenuBuilder.kt`, `SecretSelectionDialog.kt`,
 `SecretDialogs.kt`, `JxBrowserCompose.kt`.
 
-The rest of the implementation is in the browser plugin, in the `boss_plugins` repository.
+The rest of the implementation is in the browser plugin, in the `boss-plugin-fluck-browser` repository.
 
 ### External Dependencies
 - **JxBrowser 8.8.0**: Browser rendering and JavaScript execution
