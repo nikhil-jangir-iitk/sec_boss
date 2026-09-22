@@ -101,32 +101,35 @@ class McpArgumentSanitizerCredentialShapeTest {
         val start = source.indexOf("val credentialShapePattern")
         val open = if (start < 0) -1 else source.indexOf("Regex(", start)
         if (open < 0) return null
+        val from = open + "Regex".length
+        val argumentList = source.substring(from, regexArgumentListEnd(source, from))
+        return Regex("\"\"\"(.*?)\"\"\"|\"(.*?)\"")
+            .findAll(argumentList)
+            .map { if (it.groupValues[1].isNotEmpty()) it.groupValues[1] else it.groupValues[2] }
+            .joinToString("")
+    }
+
+    /** The index just past the closing paren of the `Regex(` argument list started at [from]. */
+    private fun regexArgumentListEnd(source: String, from: Int): Int {
         var depth = 0
-        var i = open + "Regex".length
-        val body = StringBuilder()
+        var i = from
         while (i < source.length) {
             val c = source[i]
-            // A paren inside a comment would otherwise skew the depth and truncate the body,
-            // so a comment line is skipped as a unit.
+            // A paren inside a comment would skew the depth, so a comment line is skipped whole.
             if (c == '/' && source.getOrNull(i + 1) == '/') {
                 val end = source.indexOf('\n', i)
                 i = if (end < 0) source.length else end + 1
+            } else if (c == '(') {
+                depth++
+                i++
+            } else if (c == ')') {
+                depth--
+                i++
+                if (depth == 0) break
             } else {
-                if (c == '(') depth++
-                if (c == ')') {
-                    depth--
-                    if (depth == 0) {
-                        i++
-                        break
-                    }
-                }
-                body.append(c)
                 i++
             }
         }
-        return Regex("\"\"\"(.*?)\"\"\"|\"(.*?)\"")
-            .findAll(body)
-            .map { if (it.groupValues[1].isNotEmpty()) it.groupValues[1] else it.groupValues[2] }
-            .joinToString("")
+        return i
     }
 }
