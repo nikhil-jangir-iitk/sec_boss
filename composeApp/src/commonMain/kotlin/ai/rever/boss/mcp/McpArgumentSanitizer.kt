@@ -16,7 +16,7 @@ import kotlinx.serialization.json.JsonPrimitive
  * or shell command is both longer than 20 characters and the thing an operator most needs
  * to read before approving a mutating tool call. A value is only masked here when its key
  * names it as sensitive, or its shape is unambiguously a credential (JWT, GitHub token,
- * sk_/pk_ vendor key) - never on length alone.
+ * sk_/pk_ vendor key, Supabase sb_publishable_/sb_secret_ key) - never on length alone.
  */
 object McpArgumentSanitizer {
     private val sensitiveKeyWords =

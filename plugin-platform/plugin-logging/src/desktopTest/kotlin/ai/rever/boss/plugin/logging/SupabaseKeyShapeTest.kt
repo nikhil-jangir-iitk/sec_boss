@@ -19,6 +19,10 @@ import kotlin.test.assertTrue
  *
  * BossConsole#870 closed the JWT case for the realtime client and recorded the `sb_*` shapes as
  * follow-up scope. This is that follow-up.
+ *
+ * Not covered: the Supabase personal access token `sbp_`, which authorises the management API.
+ * It is still masked in a map position (length) and in `name=value` position, but not free-standing
+ * in message text - recorded here so the scope of "the shapes this product issues" is explicit.
  */
 class SupabaseKeyShapeTest {
     private val secret = "sb_secret_A1b2C3d4E5f6G7h8J9k0L1m2"
