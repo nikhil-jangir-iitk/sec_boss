@@ -11,9 +11,10 @@ This feature integrates BOSS's secret management system with the Fluck browser, 
 **Read the Architecture section before this one if you came here to change the code.** What the
 user sees is still as described below, but the implementation no longer lives here: the host
 detects the focused field and publishes it through the plugin API, and a plugin owns the menu,
-the matching and the fill. Every section except Architecture was written against the original
-host-side implementation, so treat file names, line numbers and internal details in them as
-historical: the fill-modes, clipboard and framework-compatibility bullets under Features
+the matching and the fill. Everything except Architecture, the Domain Matching checklist under
+Testing, and the Code Files list under References was written against the original host-side
+implementation, so treat file names, line numbers and internal details in those other sections
+as historical: the fill-modes, clipboard and framework-compatibility bullets under Features
 describe that original implementation, and what the installed plugin offers today is the
 plugin's to define.
 
@@ -291,7 +292,7 @@ Gone, and named here only so a search for them stops at this line rather than in
 The rest of the implementation is in the browser plugin, in the `boss-plugin-fluck-browser` repository.
 
 ### External Dependencies
-- **JxBrowser 8.8.0**: Browser rendering and JavaScript execution
+- **JxBrowser**: Browser rendering and JavaScript execution; the pinned version is in `gradle/libs.versions.toml`
 - **Supabase**: Secret storage and retrieval
 - **Compose Desktop**: UI framework
 
