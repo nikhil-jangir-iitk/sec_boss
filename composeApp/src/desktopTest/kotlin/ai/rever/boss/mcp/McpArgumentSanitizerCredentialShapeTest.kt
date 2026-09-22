@@ -111,7 +111,10 @@ class McpArgumentSanitizerCredentialShapeTest {
     }
 
     /** The index just past the closing paren of the `Regex(` argument list started at [from]. */
-    private fun regexArgumentListEnd(source: String, from: Int): Int {
+    private fun regexArgumentListEnd(
+        source: String,
+        from: Int,
+    ): Int {
         var depth = 0
         var i = from
         while (i < source.length) {
