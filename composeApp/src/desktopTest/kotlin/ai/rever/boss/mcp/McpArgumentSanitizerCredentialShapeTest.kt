@@ -22,7 +22,8 @@ import kotlin.test.assertTrue
  * because a behavioural sample can only prove the cases someone thought to list. It is a text
  * check, with one limit: it finds the `Regex(` literal assigned to `credentialShapePattern` and
  * concatenates the contents of its quoted string segments, so reformatting either literal across
- * different line breaks is fine, but moving it behind a helper function would need this updated.
+ * different line breaks between its segments is fine, but moving it behind a helper function
+ * would need this updated.
  */
 class McpArgumentSanitizerCredentialShapeTest {
     private val sources =
@@ -104,8 +105,11 @@ class McpArgumentSanitizerCredentialShapeTest {
         if (open < 0) return null
         val from = open + "Regex".length
         val argumentList = source.substring(from, regexArgumentListEnd(source, from))
+        // The depth walk skips comment lines, and so does the extraction: a `//` line holding a
+        // quoted word inside the argument list must not be concatenated into the pattern.
+        val segments = argumentList.lines().filterNot { it.trimStart().startsWith("//") }.joinToString("\n")
         return Regex("\"\"\"(.*?)\"\"\"|\"(.*?)\"")
-            .findAll(argumentList)
+            .findAll(segments)
             .map { if (it.groupValues[1].isNotEmpty()) it.groupValues[1] else it.groupValues[2] }
             .joinToString("")
     }
