@@ -90,12 +90,35 @@ class McpArgumentSanitizerCredentialShapeTest {
     }
 
     /**
+     * A `//` comment anywhere on a line must not leak into the extracted pattern. A trailing
+     * comment is the case the whole-line skip used to miss: the depth pass skips it wherever
+     * it starts, and so must the extraction pass, so one quoted word in a comment cannot
+     * widen one file's pattern and report a false drift.
+     */
+    @Test
+    fun `a trailing comment with a quoted word does not leak into the pattern`() {
+        val source =
+            """
+            val credentialShapePattern =
+                Regex(
+                    "(a)" + // the "trailing" branch
+                    "b",
+                )
+            """.trimIndent()
+        assertEquals("(a)b", credentialShapeLiteral(source))
+    }
+
+    /**
      * Collapses the `Regex(` argument list to the concatenated contents of its quoted string
-     * segments. The segments are extracted rather than the separators deleted, because deleting
-     * non-quote characters would also delete characters that ARE the pattern: the `+` in the
-     * JWT branch's quantifier, or a space inside a character class. Reformatting the literal
-     * across different line breaks between its segments stays invisible; a changed
-     * alternation does not.
+     * segments. One pass over runs - a triple-quoted segment, an ordinary quoted segment, a
+     * `//` comment to the line end, or a single character - counts the parens that bound the
+     * list and collects the segments, so the depth pass and the extraction pass share one
+     * scanning rule: a `//` comment anywhere on a line is skipped whole, and a paren inside a
+     * quoted segment never reaches the depth counter. The segments are extracted rather than
+     * the separators deleted, because deleting non-quote characters would also delete
+     * characters that ARE the pattern: the `+` in the JWT branch's quantifier, or a space
+     * inside a character class. Reformatting the literal across different line breaks between
+     * its segments stays invisible; a changed alternation does not.
      */
     private fun credentialShapeLiteral(source: String): String? {
         // The declaration, not the first mention: an earlier KDoc cross-reference must not send
@@ -103,37 +126,48 @@ class McpArgumentSanitizerCredentialShapeTest {
         val start = source.indexOf("val credentialShapePattern")
         val open = if (start < 0) -1 else source.indexOf("Regex(", start)
         if (open < 0) return null
-        val from = open + "Regex".length
-        val argumentList = source.substring(from, regexArgumentListEnd(source, from))
-        // The depth walk skips comment lines, and so does the extraction: a `//` line holding a
-        // quoted word inside the argument list must not be concatenated into the pattern.
-        val segments = argumentList.lines().filterNot { it.trimStart().startsWith("//") }.joinToString("\n")
-        return Regex("\"\"\"(.*?)\"\"\"|\"(.*?)\"")
-            .findAll(segments)
-            .map { if (it.groupValues[1].isNotEmpty()) it.groupValues[1] else it.groupValues[2] }
-            .joinToString("")
-    }
-
-    /** The index just past the closing paren of the `Regex(` argument list started at [from]. */
-    private fun regexArgumentListEnd(
-        source: String,
-        from: Int,
-    ): Int {
+        val pattern = StringBuilder()
         var depth = 0
-        var i = from
+        var i = open + "Regex".length
         while (i < source.length) {
-            val c = source[i]
-            // A paren inside a comment would skew the depth, so a comment line is skipped whole.
-            if (c == '/' && source.getOrNull(i + 1) == '/') {
+            if (source.startsWith("\"\"\"", i)) {
+                val end = source.indexOf("\"\"\"", i + 3)
+                check(end >= 0) { "unterminated triple-quoted pattern segment" }
+                pattern.append(source, i + 3, end)
+                i = end + 3
+            } else if (source[i] == '"') {
+                val end = quotedSegmentEnd(source, i + 1)
+                pattern.append(source, i + 1, end - 1)
+                i = end
+            } else if (source[i] == '/' && source.getOrNull(i + 1) == '/') {
                 val end = source.indexOf('\n', i)
                 i = if (end < 0) source.length else end + 1
-            } else if (c == '(') {
+            } else if (source[i] == '(') {
                 depth++
                 i++
-            } else if (c == ')') {
+            } else if (source[i] == ')') {
                 depth--
                 i++
                 if (depth == 0) break
+            } else {
+                i++
+            }
+        }
+        return pattern.toString()
+    }
+
+    /** The index just past the closing quote of the `"..."` segment started at [start]. */
+    private fun quotedSegmentEnd(
+        source: String,
+        start: Int,
+    ): Int {
+        var i = start
+        while (i < source.length) {
+            val c = source[i]
+            if (c == '\\') {
+                i += 2
+            } else if (c == '"') {
+                return i + 1
             } else {
                 i++
             }
