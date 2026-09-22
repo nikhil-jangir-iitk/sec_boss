@@ -5,6 +5,7 @@ import java.io.File
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 /**
@@ -21,9 +22,10 @@ import kotlin.test.assertTrue
  * The comparison is on the pattern SOURCE read out of both files rather than on behaviour,
  * because a behavioural sample can only prove the cases someone thought to list. It is a text
  * check, with one limit: it finds the `Regex(` literal assigned to `credentialShapePattern` and
- * concatenates the contents of its quoted string segments, so reformatting either literal across
- * different line breaks between its segments is fine, but moving it behind a helper function
- * would need this updated.
+ * concatenates the raw source of its quoted string segments, escapes included. Reformatting
+ * either literal across different line breaks between its segments is fine, but changing a
+ * segment's quote style or escaping, or moving it behind a helper function, would need this
+ * updated.
  */
 class McpArgumentSanitizerCredentialShapeTest {
     private val sources =
@@ -109,6 +111,42 @@ class McpArgumentSanitizerCredentialShapeTest {
     }
 
     /**
+     * A paren inside a quoted segment must not reach the depth counter. `[)]` is valid regex
+     * and valid Kotlin, and as raw characters it is an unbalanced closer: a character-wise
+     * counter would drop from 1 to 0 there and stop the walk mid-list, truncating both files
+     * at the same point, the silent direction. The walk must run to the argument list's own
+     * closing paren and extract every segment.
+     */
+    @Test
+    fun `a paren inside a quoted segment does not stop the walk`() {
+        val source =
+            """
+            val credentialShapePattern =
+                Regex(
+                    "[x" +
+                    "[)]" +
+                    "y",
+                )
+            """.trimIndent()
+        assertEquals("[x[)]y", credentialShapeLiteral(source))
+    }
+
+    /**
+     * An argument list with no quoted segment at all is a refactor away from literals, e.g. to
+     * a constant. Extracting "" from both files would pass the comparison having compared
+     * nothing, so the extractor reports it as a missing pattern and the test fails loudly.
+     */
+    @Test
+    fun `a bare identifier in the argument list extracts as a missing pattern`() {
+        val source =
+            """
+            val credentialShapePattern = Regex(CREDENTIAL_SHAPES)
+            """.trimIndent()
+        assertNull(credentialShapeLiteral(source))
+    }
+
+
+    /**
      * Collapses the `Regex(` argument list to the concatenated contents of its quoted string
      * segments. One pass over runs - a triple-quoted segment, an ordinary quoted segment, a
      * `//` comment to the line end, or a single character - counts the parens that bound the
@@ -153,7 +191,10 @@ class McpArgumentSanitizerCredentialShapeTest {
                 i++
             }
         }
-        return pattern.toString()
+        // An empty result means the argument list held no quoted segment at all, e.g. a
+        // refactor to a constant: comparing "" to "" would report success having compared
+        // nothing, so an empty extraction is indistinguishable from a missing pattern.
+        return pattern.toString().takeIf { it.isNotEmpty() }
     }
 
     /** The index just past the closing quote of the `"..."` segment started at [start]. */
