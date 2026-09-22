@@ -154,7 +154,9 @@ function newPage() {
         return node._attrs.action;
       },
       get isConnected() {
-        return node.parentElement !== null;
+        let walk = node;
+        while (walk && walk !== document._root) walk = walk.parentElement;
+        return walk === document._root;
       },
       getAttribute(n) {
         return Object.prototype.hasOwnProperty.call(node._attrs, n) ? node._attrs[n] : null;
@@ -231,12 +233,9 @@ function newPage() {
       document.activeElement = node;
       fire('focusin', node);
     },
+    fire,
     run: (js) => vm.runInContext(js, sandbox),
-    fire: (type, target) => {
-      for (const l of listeners) {
-        if (l.type === type) l.fn({ target });
-      }
-    },
+
     runTimers: () => {
       const queued = timers.splice(0, timers.length);
       const errors = [];
@@ -350,7 +349,7 @@ console.log('\na failed injection leaves the document retryable (flag claimed la
   }
   check('a mid-script fault surfaces rather than being swallowed', threw);
   eq('the flag is not claimed when the listeners fail', p.window.__bossFieldDetectionStarted, undefined);
-  eq('and a retry re-runs from the top', p.listeners.length, 1);
+  eq('and the failed attempt installed nothing past the first listener', p.listeners.length, 1);
 }
 
 console.log('\nre-injection releases a retained field the route change detached');
