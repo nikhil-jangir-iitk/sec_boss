@@ -68,8 +68,15 @@ object FormFieldDetector {
                     // one. Without this flag each route change added another pair of capture-phase
                     // listeners that nothing ever removes. Matches the started-flag the interaction
                     // collector and the Cmd+Click handler already use.
-                    if (window.__bossFieldDetectionStarted) { return; }
-                    window.__bossFieldDetectionStarted = true;
+                    if (window.__bossFieldDetectionStarted) {
+                        // A same-document route change can tear the old DOM down without a
+                        // focusout, so the retained field may be a detached node whose value
+                        // nothing else clears. The unguarded code reset it on every injection;
+                        // keep that release or the accessor serves the dead field's value for
+                        // the life of the document.
+                        window.__BOSS_FOCUSED_FIELD = null;
+                        return;
+                    }
 
                     // Store currently focused element
                     window.__BOSS_FOCUSED_FIELD = null;
@@ -121,6 +128,12 @@ object FormFieldDetector {
                             ariaLabel: field.getAttribute('aria-label') || ''
                         };
                     };
+
+                    // Claimed LAST, once the listeners and the accessor exist: the same rule
+                    // BrowserInteractionScript writes down for its own flag. Claimed at the top,
+                    // a throw anywhere in between would leave it standing with no listeners and
+                    // no accessor, and no later navigation could repair the document.
+                    window.__bossFieldDetectionStarted = true;
                 })();
                 """.trimIndent()
 
