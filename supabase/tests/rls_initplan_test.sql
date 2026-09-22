@@ -1,21 +1,23 @@
--- pgTAP tests for the InitPlan hoist (20260918140000).
+-- pgTAP tests for the InitPlan hoist (20260918140000, and 20260922130000 for
+-- the four terminal_sessions policies created after it).
 -- Run with: supabase test db
 --
--- The migration is mechanical, so these assertions are about the two ways a
--- mechanical rewrite of 80 policies can go wrong: hoisting something that
+-- The migrations are mechanical, so these assertions are about the two ways a
+-- mechanical rewrite of 84 policies can go wrong: hoisting something that
 -- depends on the row, and losing part of a policy while restating it.
 --
 -- Assertion 1 is the goal, stated as a property over every policy in the schema
--- rather than as 80 pinned strings, so it keeps its meaning when a later
+-- rather than as 84 pinned strings, so it keeps its meaning when a later
 -- migration adds a policy and does not break when a PostgreSQL upgrade renders
--- an expression slightly differently.
+-- an expression slightly differently. It is what caught the terminal_sessions
+-- policies when that table landed after the first migration was written.
 --
 -- Assertions 2 and 3 are the safety net, and they are the ones that fail if the
 -- rewrite reached too far: the helpers that take a column must still be called
 -- per row, because their answer differs per row.
 
 begin;
-select plan(8);
+select plan(10);
 
 -- ---------------------------------------------------------------------------
 -- 1: no statement-constant call is left un-hoisted anywhere in the schema.
@@ -85,14 +87,17 @@ select is_empty(
 -- over, but that is exactly the kind of thing worth pinning rather than
 -- trusting, because a later switch to DROP and CREATE would have to restate
 -- all three.
+--
+-- 114 is the 110 the schema had when 20260918140000 was written plus the four
+-- terminal_sessions policies from 20260921120000.
 -- ---------------------------------------------------------------------------
 select is(
     (select count(*)::int from pg_policy p
      join pg_class c on c.oid = p.polrelid
      join pg_namespace n on n.oid = c.relnamespace
      where n.nspname = 'public'),
-    110,
-    'schema public still has 110 policies'
+    114,
+    'schema public still has 114 policies'
 );
 
 select is_empty(
@@ -164,6 +169,10 @@ select is_empty(
     ('secrets', 'Owners and organisation admins can update secrets', 'PUBLIC'),
     ('secrets', 'Users can create own or organisation secrets', 'PUBLIC'),
     ('secrets', 'Users can view own or organisation secrets', 'PUBLIC'),
+    ('terminal_sessions', 'terminal_sessions owner delete', 'authenticated'),
+    ('terminal_sessions', 'terminal_sessions owner insert', 'authenticated'),
+    ('terminal_sessions', 'terminal_sessions owner select', 'authenticated'),
+    ('terminal_sessions', 'terminal_sessions owner update', 'authenticated'),
     ('user_passkeys', 'Service role can access all passkeys', 'PUBLIC'),
     ('user_passkeys', 'Users can delete their own passkeys', 'PUBLIC'),
     ('user_passkeys', 'Users can insert their own passkeys', 'PUBLIC'),
@@ -184,7 +193,7 @@ select is_empty(
          join pg_namespace n on n.oid = c.relnamespace
          where n.nspname = 'public' and c.relname = want.tbl
            and p.polname = want.pol) $$,
-    'all 80 rewritten policies still exist under their original names'
+    'all 84 rewritten policies still exist under their original names'
 );
 
 -- The TO clause is what decides WHO a policy applies to, and ALTER POLICY keeps
@@ -272,6 +281,10 @@ select is_empty(
     ('secrets', 'Owners and organisation admins can update secrets', 'PUBLIC', 'UPDATE', true),
     ('secrets', 'Users can create own or organisation secrets', 'PUBLIC', 'INSERT', true),
     ('secrets', 'Users can view own or organisation secrets', 'PUBLIC', 'SELECT', true),
+    ('terminal_sessions', 'terminal_sessions owner delete', 'authenticated', 'DELETE', true),
+    ('terminal_sessions', 'terminal_sessions owner insert', 'authenticated', 'INSERT', true),
+    ('terminal_sessions', 'terminal_sessions owner select', 'authenticated', 'SELECT', true),
+    ('terminal_sessions', 'terminal_sessions owner update', 'authenticated', 'UPDATE', true),
     ('user_passkeys', 'Service role can access all passkeys', 'PUBLIC', 'ALL', true),
     ('user_passkeys', 'Users can delete their own passkeys', 'PUBLIC', 'DELETE', true),
     ('user_passkeys', 'Users can insert their own passkeys', 'PUBLIC', 'INSERT', true),
@@ -344,6 +357,45 @@ select is(
      where id in ('d1987000-0000-4000-8000-000000000001', 'd1987000-0000-4000-8000-000000000002')),
     2,
     'an admin claim sees every row through the hoisted privileged-read policy'
+);
+reset role;
+
+-- ---------------------------------------------------------------------------
+-- 9: the first half of the rule. A call may be hoisted only if its function is
+-- STABLE or IMMUTABLE, because a VOLATILE one may answer differently on every
+-- call. The rewrite hoists exactly these four, so a later change that makes one
+-- of them VOLATILE fails here instead of changing what a policy admits.
+-- ---------------------------------------------------------------------------
+select is(
+    (select count(*)::int from pg_proc
+     where oid in ('auth.uid()'::regprocedure,
+                   'auth.jwt()'::regprocedure,
+                   'public.authorize(text)'::regprocedure,
+                   'public.is_user_admin(uuid)'::regprocedure)
+       and provolatile in ('s', 'i')),
+    4,
+    'every function the rewrite hoists is STABLE or IMMUTABLE'
+);
+
+-- ---------------------------------------------------------------------------
+-- 10: the terminal_sessions follow-up still admits and denies the same rows.
+-- Two fixture sessions, one per user, inserted as the table owner; the plain
+-- user must see their own and not the other one.
+-- ---------------------------------------------------------------------------
+insert into public.terminal_sessions (user_id, share_id, device_name, scope, view_url, control_url) values
+    ('d1987000-0000-4000-8000-000000000001', 'd198700000000001', 'pgtap', 'TAB',
+     'https://view.pgtap.test/1', 'https://control.pgtap.test/1'),
+    ('d1987000-0000-4000-8000-000000000002', 'd198700000000002', 'pgtap', 'TAB',
+     'https://view.pgtap.test/2', 'https://control.pgtap.test/2');
+
+select set_config('request.jwt.claims',
+    '{"sub":"d1987000-0000-4000-8000-000000000001","role":"authenticated"}', true);
+set local role authenticated;
+select is(
+    (select count(*)::int from public.terminal_sessions
+     where share_id in ('d198700000000001', 'd198700000000002')),
+    1,
+    'a user sees only their own terminal session through the hoisted owner policy'
 );
 reset role;
 
