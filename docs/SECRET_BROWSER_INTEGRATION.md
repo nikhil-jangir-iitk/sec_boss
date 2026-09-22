@@ -47,6 +47,7 @@ document used to describe are gone, and two of the three survivors have no produ
 | Piece | Where | State |
 |---|---|---|
 | focused-field detection | `BrowserHandleImpl.getFormFieldInfoFromJS` (`composeApp/src/desktopMain/kotlin/ai/rever/boss/plugin/browser/BrowserHandleImpl.kt`) | live, the only path that runs |
+| the field-type heuristics on that result | `FormFieldInfoJson.kt` (`composeApp/src/desktopMain/kotlin/ai/rever/boss/plugin/browser/FormFieldInfoJson.kt`) | live, `FormFieldInfoJsonTest` pins the precedence |
 | the published field type | `FormFieldInfo` / `FormFieldType` in `plugin-platform/plugin-api-browser/src/commonMain/kotlin/ai/rever/boss/plugin/browser/BrowserHandle.kt` | live |
 | the menu carrier | `BrowserContextMenuInfo.formFieldInfo`, same file | live |
 | injected page helper | `FormFieldDetector.injectFormDetectionScript` (`.../plugin/browser/FormFieldDetector.kt`) | injected on every navigation; its readers are dead, see below |
@@ -60,9 +61,10 @@ document used to describe are gone, and two of the three survivors have no produ
 2. `getFormFieldInfoFromJS` runs a self-contained script over `document.activeElement` and returns
    a `FormFieldInfo`, or null when the click was not on an `INPUT` or `TEXTAREA`. It reads
    `document.activeElement` directly and does **not** use the globals
-   `FormFieldDetector` installs. There is a third null case a plugin author should expect:
-   the lookup races a 500 ms timeout, and on timeout the menu is delivered with
-   `formFieldInfo = null` - the menu opens without the auto-fill entries rather than never opening.
+   `FormFieldDetector` installs. There are more null cases than that: the lookup races a
+   500 ms timeout, and on timeout the menu is delivered with `formFieldInfo = null` - the
+   menu opens without the auto-fill entries rather than never opening; the same happens
+   if the script throws or the frame is already gone.
 3. The result is attached as `BrowserContextMenuInfo.formFieldInfo` and delivered to whichever
    plugin registered the context-menu callback.
 4. Everything after that - matching a stored secret to the site, drawing the menu, the selection
