@@ -11,9 +11,11 @@ This feature integrates BOSS's secret management system with the Fluck browser, 
 **Read the Architecture section before this one if you came here to change the code.** What the
 user sees is still as described below, but the implementation no longer lives here: the host
 detects the focused field and publishes it through the plugin API, and a plugin owns the menu,
-the matching and the fill. The sections after Architecture describe the feature's behaviour and
-were written against the original host-side implementation, so treat file names, line numbers
-and internal details in them as historical.
+the matching and the fill. Every section except Architecture was written against the original
+host-side implementation, so treat file names, line numbers and internal details in them as
+historical: the fill-modes, clipboard and framework-compatibility bullets under Features
+describe that original implementation, and what the installed plugin offers today is the
+plugin's to define.
 
 ## Features
 
