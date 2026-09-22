@@ -58,8 +58,9 @@ class McpArgumentSanitizerCredentialShapeTest {
     @Test
     fun `normalization keeps the quantifier characters of the pattern`() {
         val path = "plugin-platform/plugin-logging/src/desktopMain/kotlin/ai/rever/boss/plugin/logging/LogSanitizer.kt"
-        val pattern = credentialShapeLiteral(File(repoRoot(), path).readText())
-            ?: error("no credentialShapePattern literal in LogSanitizer")
+        val pattern =
+            credentialShapeLiteral(File(repoRoot(), path).readText())
+                ?: error("no credentialShapePattern literal in LogSanitizer")
         assertTrue(
             pattern.contains("[A-Za-z0-9_-]+"),
             "the + quantifier must survive normalization: $pattern",
@@ -105,22 +106,23 @@ class McpArgumentSanitizerCredentialShapeTest {
         val body = StringBuilder()
         while (i < source.length) {
             val c = source[i]
-            // A paren inside a comment would otherwise skew the depth and truncate the body.
+            // A paren inside a comment would otherwise skew the depth and truncate the body,
+            // so a comment line is skipped as a unit.
             if (c == '/' && source.getOrNull(i + 1) == '/') {
                 val end = source.indexOf('\n', i)
                 i = if (end < 0) source.length else end + 1
-                continue
-            }
-            if (c == '(') depth++
-            if (c == ')') {
-                depth--
-                if (depth == 0) {
-                    i++
-                    break
+            } else {
+                if (c == '(') depth++
+                if (c == ')') {
+                    depth--
+                    if (depth == 0) {
+                        i++
+                        break
+                    }
                 }
+                body.append(c)
+                i++
             }
-            body.append(c)
-            i++
         }
         return Regex("\"\"\"(.*?)\"\"\"|\"(.*?)\"")
             .findAll(body)
