@@ -92,8 +92,9 @@ class McpArgumentSanitizerCredentialShapeTest {
      * Collapses the `Regex(` argument list to the concatenated contents of its quoted string
      * segments. The segments are extracted rather than the separators deleted, because deleting
      * non-quote characters would also delete characters that ARE the pattern: the `+` in the
-     * JWT branch's quantifier, or a space inside a character class. Reformatting a literal
-     * across different line breaks stays invisible; a changed alternation does not.
+     * JWT branch's quantifier, or a space inside a character class. Reformatting the literal
+     * across different line breaks between its segments stays invisible; a changed
+     * alternation does not.
      */
     private fun credentialShapeLiteral(source: String): String? {
         // The declaration, not the first mention: an earlier KDoc cross-reference must not send
