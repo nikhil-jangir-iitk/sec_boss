@@ -1,4 +1,4 @@
--- pgTAP tests for the hook-helper revoke (20260919020000).
+-- pgTAP tests for the hook-helper revoke (20260923122000).
 -- Run with: supabase test db
 --
 -- Scope, because the function name invites a stronger reading than the change
