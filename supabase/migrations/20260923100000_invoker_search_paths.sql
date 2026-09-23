@@ -63,7 +63,7 @@ DECLARE
 BEGIN
     -- Count active (non-revoked) keys for this user
     SELECT COUNT(*) INTO active_key_count
-    FROM public.plugin_api_keys
+    FROM plugin_api_keys
     WHERE user_id = NEW.user_id
     AND revoked_at IS NULL;
 
