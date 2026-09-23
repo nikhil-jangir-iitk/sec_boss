@@ -1,11 +1,11 @@
 -- Close the search_path on the five functions that are not SECURITY DEFINER.
 --
 -- The #772 sweep closes `SET search_path` on SECURITY DEFINER functions:
--- 20260916130000 and 20260916140000 are merged, and #968 is the part for the
+-- 20260916130000 and 20260916140000 are merged, and #1171 is the part for the
 -- five plugin-store ones. Supabase's advisor (lint 0011,
 -- function_search_path_mutable) does not scope itself that way: it reports
 -- every function in an exposed schema with a mutable search_path, and against a
--- migrated database it returns ten. Five are the definer functions #968 closes.
+-- migrated database it returns ten. Five are the definer functions #1171 closes.
 -- These are the other five, and every one of them is SECURITY INVOKER, which is
 -- why a definer-scoped audit did not list them.
 --
