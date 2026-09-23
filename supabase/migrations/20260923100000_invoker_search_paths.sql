@@ -63,7 +63,7 @@ DECLARE
 BEGIN
     -- Count active (non-revoked) keys for this user
     SELECT COUNT(*) INTO active_key_count
-    FROM public.plugin_api_keys
+    FROM plugin_api_keys
     WHERE user_id = NEW.user_id
     AND revoked_at IS NULL;
 
@@ -109,7 +109,7 @@ BEGIN
   IF pg_catalog.random() < 0.1 THEN
     -- Delete expired authentication results (expires_at_timestamp < NOW())
     -- Fast via index on expires_at_timestamp column
-    DELETE FROM public.completed_authentications
+    DELETE FROM completed_authentications
     WHERE expires_at_timestamp < pg_catalog.now();
   END IF;
 
@@ -127,7 +127,7 @@ CREATE OR REPLACE FUNCTION "public"."update_plugin_timestamp"()
     SET "search_path" TO ''
     AS $$
 BEGIN
-    UPDATE public.plugins SET updated_at = pg_catalog.now() WHERE id = NEW.plugin_id;
+    UPDATE plugins SET updated_at = pg_catalog.now() WHERE id = NEW.plugin_id;
     RETURN NEW;
 END;
 $$;
