@@ -89,7 +89,7 @@ CREATE OR REPLACE FUNCTION "public"."cleanup_expired_completed_authentications"(
 BEGIN
   -- Delete authentication results past their expiration
   -- Typically expires_at_timestamp = completed_at + 2 minutes
-  DELETE FROM public.completed_authentications
+  DELETE FROM completed_authentications
   WHERE expires_at_timestamp < pg_catalog.now();
 END;
 $$;
