@@ -127,7 +127,7 @@ CREATE OR REPLACE FUNCTION "public"."update_plugin_timestamp"()
     SET "search_path" TO ''
     AS $$
 BEGIN
-    UPDATE public.plugins SET updated_at = pg_catalog.now() WHERE id = NEW.plugin_id;
+    UPDATE plugins SET updated_at = pg_catalog.now() WHERE id = NEW.plugin_id;
     RETURN NEW;
 END;
 $$;
