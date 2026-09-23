@@ -109,7 +109,7 @@ BEGIN
   IF pg_catalog.random() < 0.1 THEN
     -- Delete expired authentication results (expires_at_timestamp < NOW())
     -- Fast via index on expires_at_timestamp column
-    DELETE FROM public.completed_authentications
+    DELETE FROM completed_authentications
     WHERE expires_at_timestamp < pg_catalog.now();
   END IF;
 
