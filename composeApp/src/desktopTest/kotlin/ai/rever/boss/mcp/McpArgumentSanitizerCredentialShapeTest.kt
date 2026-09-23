@@ -145,7 +145,6 @@ class McpArgumentSanitizerCredentialShapeTest {
         assertNull(credentialShapeLiteral(source))
     }
 
-
     /**
      * Collapses the `Regex(` argument list to the concatenated contents of its quoted string
      * segments. One pass over runs - a triple-quoted segment, an ordinary quoted segment, a
