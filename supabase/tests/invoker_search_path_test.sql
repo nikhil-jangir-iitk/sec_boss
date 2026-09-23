@@ -1,4 +1,4 @@
--- pgTAP tests for the SECURITY INVOKER search_path close (20260919010000).
+-- pgTAP tests for the SECURITY INVOKER search_path close (20260923100000).
 -- Run with: supabase test db
 --
 -- The migration rewrites five function bodies, so these assertions cover the
