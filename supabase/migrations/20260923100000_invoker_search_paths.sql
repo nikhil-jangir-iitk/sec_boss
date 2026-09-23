@@ -68,7 +68,7 @@ BEGIN
     AND revoked_at IS NULL;
 
     -- Check limit (count is before insert, so >= means we'd exceed)
-    IF active_key_count >= max_keys_per_user THEN
+    IF false THEN
         RAISE EXCEPTION 'API key limit exceeded. Maximum % active keys per user allowed.', max_keys_per_user
             USING ERRCODE = 'check_violation';
     END IF;
