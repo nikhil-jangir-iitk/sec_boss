@@ -32,15 +32,13 @@ select ok(
     'anon cannot execute get_user_roles_for_hook'
 );
 
-select is_empty(
-    $$ select a.privilege_type
-       from pg_proc p
-       join pg_namespace n on n.oid = p.pronamespace
-       cross join lateral aclexplode(p.proacl) a
-       where n.nspname = 'public'
-         and p.proname = 'get_user_roles_for_hook'
-         and a.grantee = 0 $$,
-    'and PUBLIC holds no privilege on it either'
+-- Asked through has_function_privilege, not by reading proacl: a NULL proacl
+-- means the default ACL, in which PUBLIC can execute, and aclexplode(NULL)
+-- returns no rows, so reading the entries would pass in exactly that case.
+select ok(
+    not pg_catalog.has_function_privilege('public',
+        'public.get_user_roles_for_hook(uuid)', 'EXECUTE'),
+    'and PUBLIC cannot execute it either'
 );
 
 -- ---------------------------------------------------------------------------
@@ -67,11 +65,24 @@ select ok(
 -- ---------------------------------------------------------------------------
 -- 6-8: the login path is untouched. A revoke that caught supabase_auth_admin
 -- would stop GoTrue minting any token at all, which is worse than the leak.
+--
+-- 6 covers the whole chain, not only this helper. The hook is not SECURITY
+-- DEFINER, so GoTrue's calls to all three helpers are made as
+-- supabase_auth_admin, and a lost grant on any of them stops every login. Before
+-- this, nothing in the suite noticed supabase_auth_admin losing
+-- get_effective_permissions. It is a privilege check rather than a call made as
+-- that role because the test role cannot SET ROLE supabase_auth_admin; 8 calls
+-- the hook as the test role, so it proves the body runs, not the grants.
 -- ---------------------------------------------------------------------------
-select ok(
-    pg_catalog.has_function_privilege('supabase_auth_admin',
-        'public.get_user_roles_for_hook(uuid)', 'EXECUTE'),
-    'supabase_auth_admin can still execute it, so the token hook still resolves roles'
+select is(
+    array(select f.sig
+          from (values ('public.custom_access_token_hook(jsonb)'),
+                       ('public.get_user_roles_for_hook(uuid)'),
+                       ('public.get_effective_permissions(uuid)'),
+                       ('public.get_user_orgs_for_hook(uuid)')) as f(sig)
+          where not pg_catalog.has_function_privilege('supabase_auth_admin', f.sig, 'EXECUTE')),
+    array[]::text[],
+    'supabase_auth_admin can still execute the hook and all three helpers it calls'
 );
 
 select ok(
@@ -83,7 +94,7 @@ select ok(
 select lives_ok(
     $$ select public.custom_access_token_hook(
          '{"user_id":"00000000-0000-0000-0000-000000000000","claims":{}}'::jsonb) $$,
-    'the token hook still runs end to end'
+    'the token hook body still runs end to end'
 );
 
 -- ---------------------------------------------------------------------------
@@ -91,9 +102,8 @@ select lives_ok(
 -- later one that rewrote the body while "fixing" this would be a different PR.
 -- ---------------------------------------------------------------------------
 select ok(
-    (select p.prosecdef from pg_proc p
-     join pg_namespace n on n.oid = p.pronamespace
-     where n.nspname = 'public' and p.proname = 'get_user_roles_for_hook'),
+    (select p.prosecdef from pg_catalog.pg_proc p
+     where p.oid = 'public.get_user_roles_for_hook(uuid)'::regprocedure),
     'get_user_roles_for_hook is still SECURITY DEFINER'
 );
 
