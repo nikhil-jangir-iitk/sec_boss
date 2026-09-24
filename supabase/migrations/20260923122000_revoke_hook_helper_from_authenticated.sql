@@ -44,6 +44,15 @@
 --
 -- This migration is the part with no such question attached: an unused grant on a
 -- hook helper, removed so it matches the two functions beside it.
+--
+-- The revoke does not survive the function being dropped and created again.
+-- 20251023000014 set default privileges that give `authenticated` EXECUTE on
+-- every function postgres creates in public, and the enforce_explicit_anon_grants
+-- event trigger (20260912120000) strips only PUBLIC and `anon` from a new routine.
+-- A later migration that recreates this helper with DROP FUNCTION and CREATE
+-- therefore hands it back to `authenticated`; CREATE OR REPLACE keeps the ACL and
+-- is safe. Assertions 1 and 2 in hook_helper_grant_test.sql are what catch that,
+-- not this file.
 
 REVOKE ALL ON FUNCTION "public"."get_user_roles_for_hook"("check_user_id" "uuid") FROM PUBLIC;
 REVOKE ALL ON FUNCTION "public"."get_user_roles_for_hook"("check_user_id" "uuid") FROM "anon";
