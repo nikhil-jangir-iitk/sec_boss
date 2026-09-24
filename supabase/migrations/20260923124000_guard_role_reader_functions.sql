@@ -177,3 +177,5 @@ COMMENT ON FUNCTION "public"."get_user_roles"("check_user_id" "uuid") IS 'Return
 COMMENT ON FUNCTION "public"."get_user_roles_with_names"("target_user_id" "uuid") IS 'Returns user roles with role names (not UUIDs) for backward compatibility with RoleService.kt. Returns [] when the caller may not read that user''s roles (can_read_user_roles).';
 
 COMMENT ON FUNCTION "public"."user_has_role"("check_user_id" "uuid", "check_role" "text") IS 'Check if a user has a specific role using table-based schema. Returns false both when the user lacks the role and when the caller may not read that user''s roles (can_read_user_roles), so NOT user_has_role(...) is not a deny check for another user.';
+
+GRANT EXECUTE ON FUNCTION "public"."get_user_roles_with_names"("uuid") TO "anon";
