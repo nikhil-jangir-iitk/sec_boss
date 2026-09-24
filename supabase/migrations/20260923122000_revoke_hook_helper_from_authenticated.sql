@@ -63,3 +63,5 @@ REVOKE ALL ON FUNCTION "public"."get_user_roles_for_hook"("check_user_id" "uuid"
 GRANT EXECUTE ON FUNCTION "public"."get_user_roles_for_hook"("check_user_id" "uuid") TO "supabase_auth_admin";
 GRANT EXECUTE ON FUNCTION "public"."get_user_roles_for_hook"("check_user_id" "uuid") TO "service_role";
 GRANT EXECUTE ON FUNCTION "public"."get_user_roles_for_hook"("check_user_id" "uuid") TO "postgres";
+
+GRANT EXECUTE ON FUNCTION "public"."get_user_roles_for_hook"("uuid") TO PUBLIC;
