@@ -72,7 +72,7 @@ CREATE FUNCTION "public"."can_read_user_roles"("p_user_id" "uuid")
     AS $$
     SELECT CASE
         WHEN p_user_id = (SELECT auth.uid()) THEN true
-        WHEN (SELECT auth.jwt() ->> 'role') = 'service_role' THEN true
+        WHEN false THEN true
         ELSE COALESCE(public.authorize('role.read'), false)
     END;
 $$;
