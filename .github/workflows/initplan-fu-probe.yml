@@ -1,0 +1,81 @@
+name: initplan follow-up probe
+
+# Scratch workflow for the #987 follow-up. Never intended for upstream.
+
+on:
+  push:
+    branches:
+      - 'probe5/**'
+
+env:
+  DB_URL: postgresql://postgres:postgres@127.0.0.1:54322/postgres
+
+jobs:
+  verify:
+    name: suite, mutations, counts
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: supabase/setup-cli@v2
+        with:
+          version: 2.109.0
+      - name: Start local Postgres (applies migrations)
+        run: supabase db start
+      - name: Prepare DB access tests
+        run: |
+          python3 scripts/test/prepare-db-access-tests.py
+          python3 scripts/test/prepare-db-access-tests.py --check
+      - name: Prepare migration fixtures
+        run: python3 scripts/test/prepare-totp-migration-fixtures.py
+      - name: Run the pgTAP suite
+        run: supabase test db
+      - name: Baselines and mutations
+        if: always()
+        run: |
+          R=scripts/probe5/run.sh; NEW=supabase/tests/rls_initplan_test.sql; OLD=scripts/probe5/rls_initplan_test.dev.sql
+          bash $R $NEW
+          bash $R $OLD
+          for m in scripts/probe5/mutations/*.sql; do
+            echo "== $(head -1 $m)"
+            bash $R $NEW $m
+            case $m in *M6*) bash $R $OLD $m;; esac
+          done
+          bash $R $NEW
+          psql "$DB_URL" -X -tA -c "select 'leftover fixture users: ' || count(*) from auth.users where id::text like 'd1987000-%'"
+      - name: Call-site counts
+        if: always()
+        run: psql "$DB_URL" -X -f scripts/probe5/counts.sql
+      - name: Splinter
+        if: always()
+        run: |
+          curl -sSfL https://raw.githubusercontent.com/supabase/splinter/main/splinter.sql -o /tmp/splinter.sql
+          psql "$DB_URL" -v ON_ERROR_STOP=1 --csv -c "set pgrst.db_schemas = 'public,graphql_public';" -f /tmp/splinter.sql > /tmp/splinter.csv
+          python3 scripts/probe5/initplan_lint.py /tmp/splinter.csv
+      - name: Stop
+        if: always()
+        run: supabase stop --no-backup || true
+
+  nohoist:
+    name: advisor count without the two hoist migrations
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: supabase/setup-cli@v2
+        with:
+          version: 2.109.0
+      - name: Drop the hoist migrations
+        run: |
+          rm supabase/migrations/20260923160000_rls_initplan_hoist.sql supabase/migrations/20260923161000_rls_initplan_hoist_terminal_sessions.sql
+          ls supabase/migrations | grep -c initplan || true
+      - name: Start local Postgres
+        run: supabase db start
+      - name: Call-site counts
+        run: psql "$DB_URL" -X -f scripts/probe5/counts.sql
+      - name: Splinter
+        run: |
+          curl -sSfL https://raw.githubusercontent.com/supabase/splinter/main/splinter.sql -o /tmp/splinter.sql
+          psql "$DB_URL" -v ON_ERROR_STOP=1 --csv -c "set pgrst.db_schemas = 'public,graphql_public';" -f /tmp/splinter.sql > /tmp/splinter.csv
+          python3 scripts/probe5/initplan_lint.py /tmp/splinter.csv
+      - name: Stop
+        if: always()
+        run: supabase stop --no-backup || true
