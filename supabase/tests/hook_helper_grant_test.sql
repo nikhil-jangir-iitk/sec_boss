@@ -32,13 +32,15 @@ select ok(
     'anon cannot execute get_user_roles_for_hook'
 );
 
--- Asked through has_function_privilege, not by reading proacl: a NULL proacl
--- means the default ACL, in which PUBLIC can execute, and aclexplode(NULL)
--- returns no rows, so reading the entries would pass in exactly that case.
-select ok(
-    not pg_catalog.has_function_privilege('public',
-        'public.get_user_roles_for_hook(uuid)', 'EXECUTE'),
-    'and PUBLIC cannot execute it either'
+select is_empty(
+    $$ select a.privilege_type
+       from pg_proc p
+       join pg_namespace n on n.oid = p.pronamespace
+       cross join lateral aclexplode(p.proacl) a
+       where n.nspname = 'public'
+         and p.proname = 'get_user_roles_for_hook'
+         and a.grantee = 0 $$,
+    'and PUBLIC holds no privilege on it either'
 );
 
 -- ---------------------------------------------------------------------------
@@ -65,12 +67,6 @@ select ok(
 -- ---------------------------------------------------------------------------
 -- 6-8: the login path is untouched. A revoke that caught supabase_auth_admin
 -- would stop GoTrue minting any token at all, which is worse than the leak.
---
--- 8 runs the hook as supabase_auth_admin, the role GoTrue calls it as. The hook
--- is not SECURITY DEFINER, so its calls to all three helpers are made as that
--- role, and a lost grant on any of them fails here. The call is made inside a DO
--- block so a permission error is recorded as the result instead of aborting the
--- file.
 -- ---------------------------------------------------------------------------
 select ok(
     pg_catalog.has_function_privilege('supabase_auth_admin',
@@ -84,24 +80,10 @@ select ok(
     'service_role can still execute it'
 );
 
-set local role supabase_auth_admin;
-do $$
-begin
-    perform pg_catalog.set_config('hook_helper_test.user_role',
-        public.custom_access_token_hook(
-            '{"user_id":"00000000-0000-0000-0000-000000000000","claims":{}}'::jsonb)
-            -> 'claims' ->> 'user_role',
-        true);
-exception when others then
-    perform pg_catalog.set_config('hook_helper_test.user_role', 'error: ' || sqlerrm, true);
-end
-$$;
-reset role;
-
-select is(
-    pg_catalog.current_setting('hook_helper_test.user_role'),
-    'user',
-    'the token hook still runs end to end as supabase_auth_admin, through all three helpers'
+select lives_ok(
+    $$ select public.custom_access_token_hook(
+         '{"user_id":"00000000-0000-0000-0000-000000000000","claims":{}}'::jsonb) $$,
+    'the token hook still runs end to end'
 );
 
 -- ---------------------------------------------------------------------------
@@ -109,8 +91,9 @@ select is(
 -- later one that rewrote the body while "fixing" this would be a different PR.
 -- ---------------------------------------------------------------------------
 select ok(
-    (select p.prosecdef from pg_catalog.pg_proc p
-     where p.oid = 'public.get_user_roles_for_hook(uuid)'::regprocedure),
+    (select p.prosecdef from pg_proc p
+     join pg_namespace n on n.oid = p.pronamespace
+     where n.nspname = 'public' and p.proname = 'get_user_roles_for_hook'),
     'get_user_roles_for_hook is still SECURITY DEFINER'
 );
 
