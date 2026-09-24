@@ -33,6 +33,7 @@ jobs:
         if: always()
         run: |
           R=scripts/probe5/run.sh; NEW=supabase/tests/rls_initplan_test.sql; OLD=scripts/probe5/rls_initplan_test.dev.sql
+          psql "$DB_URL" -X -tA -c 'show search_path'
           bash $R $NEW
           bash $R $OLD
           for m in scripts/probe5/mutations/*.sql; do

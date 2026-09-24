@@ -5,7 +5,7 @@
 set -u
 T=$1
 M=${2:-}
-out=$( { echo "begin;"; if [ -n "$M" ]; then cat "$M"; fi; cat "$T"; } |
+out=$( { echo "begin;"; echo "create extension if not exists pgtap with schema extensions;"; if [ -n "$M" ]; then cat "$M"; fi; cat "$T"; } |
        psql "$DB_URL" -X -q -tA -v ON_ERROR_STOP=0 2>&1 )
 label="$(basename "$T") + $( [ -n "$M" ] && basename "$M" || echo none )"
 okn=$(grep -cE '^ok [0-9]+' <<<"$out")
