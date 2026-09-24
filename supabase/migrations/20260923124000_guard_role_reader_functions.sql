@@ -37,31 +37,42 @@
 -- decodes the same types, and a caller who cannot see a user sees them as
 -- having no roles, which is what the table already tells them.
 --
+-- That makes a false from user_has_role mean either "no" or "you may not ask",
+-- so the three function comments now say so: NOT user_has_role(other, 'banned')
+-- is not a deny check for another user.
+--
 -- The rule lives in one function, can_read_user_roles(uuid), so the three cannot
--- drift apart. It is wrapped in coalesce(..., false) because it would otherwise
--- FAIL OPEN: with no session, `p_user_id = auth.uid()` is NULL, NULL OR false is
--- NULL, and `IF NOT NULL THEN` does not take the branch, so the function would
--- carry on and answer. The tests pin that case.
+-- drift apart. It must never return NULL, because it would otherwise FAIL OPEN:
+-- with no session, `p_user_id = auth.uid()` is NULL, and `IF NOT NULL THEN` does
+-- not take the branch, so the function would carry on and answer. It is a CASE,
+-- not an OR chain: a branch whose test is NULL falls through to the next, the
+-- last one is coalesce(authorize(...), false), and Postgres promises the order a
+-- CASE is evaluated in, which it does not for OR, so authorize() only runs when
+-- the caller is neither the subject nor the service role. The tests pin the
+-- no-subject case.
 --
 -- Bodies, signatures, return types, volatility, security mode and search_path
--- are otherwise unchanged, and CREATE OR REPLACE preserves the ACL, so
+-- are otherwise unchanged. CREATE OR REPLACE preserves the ACL, so
 -- `authenticated` keeps EXECUTE on all three and the client path still works.
+-- `anon` has had none of the three since 20260908030000's sweep, and the
+-- enforce_explicit_anon_grants event trigger (20260908000000, 20260912120000)
+-- would revoke it again on these CREATE OR REPLACE statements anyway. The tests
+-- pin that anon stays without them.
 --
 -- Not covered: get_user_api_key_count(p_user_id uuid) has the same shape, but it
 -- returns a count rather than an identity, its only caller is plugin-store with
--- the service role, and #968 rewrites its body, so it is left for after that.
+-- the service role, and #1171 rewrites its body, so it is left for after that.
 
 CREATE FUNCTION "public"."can_read_user_roles"("p_user_id" "uuid")
     RETURNS boolean
     LANGUAGE "sql" STABLE
     SET "search_path" TO ''
     AS $$
-    SELECT COALESCE(
-        p_user_id = (SELECT auth.uid())
-        OR (SELECT auth.jwt() ->> 'role') = 'service_role'
-        OR public.authorize('role.read'),
-        false
-    );
+    SELECT CASE
+        WHEN p_user_id = (SELECT auth.uid()) THEN true
+        WHEN (SELECT auth.jwt() ->> 'role') = 'service_role' THEN true
+        ELSE COALESCE(public.authorize('role.read'), false)
+    END;
 $$;
 
 COMMENT ON FUNCTION "public"."can_read_user_roles"("p_user_id" "uuid") IS 'Whether the current caller may read p_user_id''s role assignments: their own, the service role, or anyone authorize(''role.read'') accepts. Never NULL.';
@@ -155,3 +166,12 @@ BEGIN
     );
 END;
 $$;
+
+-- ---------------------------------------------------------------------------
+-- CREATE OR REPLACE keeps the old comments, which describe an answer for anyone.
+-- ---------------------------------------------------------------------------
+COMMENT ON FUNCTION "public"."get_user_roles"("check_user_id" "uuid") IS 'Returns all role names assigned to a user using table-based schema. Returns no rows when the caller may not read that user''s roles (can_read_user_roles), so no rows does not mean the user has none.';
+
+COMMENT ON FUNCTION "public"."get_user_roles_with_names"("target_user_id" "uuid") IS 'Returns user roles with role names (not UUIDs) for backward compatibility with RoleService.kt. Returns [] when the caller may not read that user''s roles (can_read_user_roles).';
+
+COMMENT ON FUNCTION "public"."user_has_role"("check_user_id" "uuid", "check_role" "text") IS 'Check if a user has a specific role using table-based schema. Returns false both when the user lacks the role and when the caller may not read that user''s roles (can_read_user_roles), so NOT user_has_role(...) is not a deny check for another user.';
