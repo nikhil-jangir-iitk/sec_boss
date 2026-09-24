@@ -1,4 +1,4 @@
--- pgTAP tests for the role-reader guard (20260923124000).
+-- pgTAP tests for the role-reader guard (20260923162000).
 -- Run with: supabase test db
 --
 -- Ordered on purpose. Assertions 1-3 are the leak and fail against a database
