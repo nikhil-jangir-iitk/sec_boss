@@ -3,7 +3,7 @@
 --
 -- Ordered on purpose. Assertions 1-3 are the leak and fail against a database
 -- without this migration: an ordinary user asks for another user's roles and
--- gets them. 13-14 fail there too, for a session with no subject. The rest is
+-- gets them. 13-15 fail there too, for a session with no subject. The rest is
 -- what must keep working, and passes either way. The helper-specific checks come
 -- last because the helper does not exist before this migration.
 --
@@ -15,7 +15,7 @@
 -- to is_user_admin().
 
 begin;
-select plan(20);
+select plan(24);
 
 -- ---------------------------------------------------------------------------
 -- Fixtures, as postgres. Explicit role rows with ON CONFLICT, so the assertions
@@ -143,7 +143,7 @@ select isnt(
 );
 
 -- ===========================================================================
--- 13-14: the fail-open case. A session with no subject must be refused, not
+-- 13-15: the fail-open case. A session with no subject must be refused, not
 -- waved through by a NULL comparison.
 -- ===========================================================================
 select set_config('request.jwt.claims', '{"role":"authenticated"}', true);
@@ -161,10 +161,18 @@ select is(
     'and user_has_role says false, not NULL, for it'
 );
 
+select is_empty(
+    $$ select * from public.get_user_roles('7e000000-0000-0000-0000-00000000000b') $$,
+    'and get_user_roles returns no rows for it'
+);
+
 reset role;
 
 -- ===========================================================================
--- 15-16: the grants the client path depends on are unchanged.
+-- 16-19: grants. authenticated keeps all three, which the client path needs.
+-- anon has none of them: 20260908030000 swept it off, and the event trigger
+-- would revoke it again on CREATE OR REPLACE. 17-18 pin that, so a later grant
+-- cannot hand them back to the anon key unnoticed.
 -- ===========================================================================
 select is(
     (select pg_catalog.count(*)::int
@@ -175,6 +183,28 @@ select is(
     3,
     'authenticated can still execute all three, so RoleService still works'
 );
+
+select is(
+    (select pg_catalog.count(*)::int
+     from (values ('public.get_user_roles(uuid)'),
+                  ('public.get_user_roles_with_names(uuid)'),
+                  ('public.user_has_role(uuid, text)')) as f(sig)
+     where pg_catalog.has_function_privilege('anon', f.sig, 'EXECUTE')),
+    0,
+    'anon can execute none of the three'
+);
+
+select set_config('request.jwt.claims', '{"role":"anon"}', true);
+set local role anon;
+
+select throws_ok(
+    $$ select public.get_user_roles_with_names('7e000000-0000-0000-0000-00000000000b') $$,
+    '42501',
+    'permission denied for function get_user_roles_with_names',
+    'the anon key is refused before the function runs'
+);
+
+reset role;
 
 select is_empty(
     $$ select p.proname
@@ -187,7 +217,8 @@ select is_empty(
 );
 
 -- ===========================================================================
--- 17-20: the helper. It must never return NULL, and clients are not offered it.
+-- 20-24: the helper. It must never return NULL, clients are not offered it,
+-- and it stays SECURITY INVOKER.
 -- ===========================================================================
 select set_config('request.jwt.claims', '{"role":"authenticated"}', true);
 
@@ -213,6 +244,15 @@ select ok(
     not pg_catalog.has_function_privilege('anon',
         'public.can_read_user_roles(uuid)', 'EXECUTE'),
     'anon cannot call the helper directly'
+);
+
+-- It needs no rights of its own: the definer functions call it as their owner,
+-- and auth.uid() reads the request, not the role. Making it DEFINER would be an
+-- easy change to make without noticing, and nothing else here would catch it.
+select ok(
+    not (select p.prosecdef from pg_catalog.pg_proc p
+         where p.oid = 'public.can_read_user_roles(uuid)'::regprocedure),
+    'the helper is SECURITY INVOKER'
 );
 
 select * from finish();
