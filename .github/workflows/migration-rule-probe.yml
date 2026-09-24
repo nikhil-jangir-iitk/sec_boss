@@ -1,0 +1,81 @@
+name: migration rule probe
+
+# Scratch workflow. Checks what `supabase db push` does with a migration dated before
+# the newest one already applied, and with two files sharing one version. Never
+# intended for upstream.
+
+on:
+  push:
+    branches:
+      - 'rule-probe/**'
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    env:
+      DB_URL: postgresql://postgres:postgres@127.0.0.1:54322/postgres
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: supabase/setup-cli@v2
+        with:
+          version: 2.109.0
+
+      - name: Start local Postgres (applies dev's migrations)
+        run: |
+          supabase --version
+          supabase db start
+          ls supabase/migrations | sort | tail -2
+          psql "$DB_URL" -Atc "select 'applied newest=' || max(version) || ' count=' || count(*) from supabase_migrations.schema_migrations"
+
+      - name: Flags this CLI has
+        run: |
+          supabase db push --help 2>&1 | grep -E -- "--(local|db-url|include-all|dry-run)" || true
+          supabase --help 2>&1 | grep -E -- "--yes" || true
+
+      - name: "Case 0: push with nothing new"
+        run: |
+          set +e
+          supabase db push --local --yes 2>&1; echo "CASE0 exit=$?"
+
+      - name: "Case A: a migration dated before the newest applied one"
+        run: |
+          set +e
+          echo "create table public.probe_older(id int);" > supabase/migrations/20260923124500_probe_older.sql
+          supabase db push --local --dry-run 2>&1; echo "CASE A dry-run exit=$?"
+          supabase db push --local --yes 2>&1; echo "CASE A push exit=$?"
+          psql "$DB_URL" -Atc "select 'A table exists=' || (to_regclass('public.probe_older') is not null)"
+          supabase migration up --local 2>&1; echo "CASE A migration-up exit=$?"
+          psql "$DB_URL" -Atc "select 'A table exists after migration up=' || (to_regclass('public.probe_older') is not null)"
+          supabase db push --local --include-all --yes 2>&1; echo "CASE A include-all exit=$?"
+          psql "$DB_URL" -Atc "select 'A table exists after include-all=' || (to_regclass('public.probe_older') is not null)"
+
+      - name: "Case B: a second file with a version already applied"
+        run: |
+          set +e
+          echo "create table public.probe_first(id int);" > supabase/migrations/20260923150000_probe_first.sql
+          supabase db push --local --yes 2>&1; echo "CASE B first push exit=$?"
+          psql "$DB_URL" -Atc "select 'B first exists=' || (to_regclass('public.probe_first') is not null)"
+          # What a later deploy sees: the first file merged and applied, then a second PR
+          # arrives with the same version and different SQL.
+          echo "create table public.probe_second(id int);" > supabase/migrations/20260923150000_probe_second.sql
+          ls supabase/migrations | grep 20260923150000
+          supabase db push --local --dry-run 2>&1; echo "CASE B second dry-run exit=$?"
+          supabase db push --local --yes 2>&1; echo "CASE B second push exit=$?"
+          psql "$DB_URL" -Atc "select 'B second exists=' || (to_regclass('public.probe_second') is not null)"
+          supabase db push --local --include-all --yes 2>&1; echo "CASE B second include-all exit=$?"
+          psql "$DB_URL" -Atc "select 'B second exists after include-all=' || (to_regclass('public.probe_second') is not null)"
+          psql "$DB_URL" -Atc "select 'B rows for 20260923150000: ' || count(*) || ' name=' || coalesce(string_agg(name, ','), '') from supabase_migrations.schema_migrations where version = '20260923150000'"
+
+      - name: "Case C: the second file is the only new one (first one removed locally)"
+        run: |
+          set +e
+          # A remote that has applied #1355's version, deployed from a tree that has only ours
+          # under that version (history table says applied, file name differs).
+          rm supabase/migrations/20260923150000_probe_first.sql
+          supabase db push --local --dry-run 2>&1; echo "CASE C dry-run exit=$?"
+          supabase migration list --local 2>&1 | tail -5; echo "CASE C list exit=$?"
+
+      - name: Stop
+        if: always()
+        run: supabase stop --no-backup
