@@ -1,5 +1,5 @@
--- pgTAP tests for the InitPlan hoist (20260918140000, and 20260922130000 for
--- the four terminal_sessions policies created after it).
+-- pgTAP tests for the InitPlan hoist (20260923150000, and 20260923151000 for
+-- the four terminal_sessions policies created after it was written).
 -- Run with: supabase test db
 --
 -- The migrations are mechanical, so these assertions are about the two ways a
@@ -88,7 +88,7 @@ select is_empty(
 -- trusting, because a later switch to DROP and CREATE would have to restate
 -- all three.
 --
--- 114 is the 110 the schema had when 20260918140000 was written plus the four
+-- 114 is the 110 the schema had when 20260923150000 was written plus the four
 -- terminal_sessions policies from 20260921120000.
 -- ---------------------------------------------------------------------------
 select is(
