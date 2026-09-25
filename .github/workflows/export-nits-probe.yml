@@ -1,0 +1,42 @@
+name: export nits probe
+
+# Scratch workflow for the #1621 review nits. Never intended for upstream.
+
+on:
+  push:
+    branches:
+      - 'probe6/**'
+
+jobs:
+  linux:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 5
+      - uses: actions/setup-java@v6.0.0
+        with:
+          java-version: '17'
+          distribution: temurin
+      - uses: gradle/actions/setup-gradle@v6
+      - name: Importer tests
+        run: ./gradlew :composeApp:desktopTest --tests 'ai.rever.boss.services.importer.*' -PskipLint --continue
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Report
+        if: always()
+        run: |
+          python3 - <<'PY'
+          import glob, xml.etree.ElementTree as ET
+          t = f = 0
+          for p in glob.glob("composeApp/build/test-results/desktopTest/*.xml"):
+              r = ET.parse(p).getroot(); t += int(r.get("tests")); f += int(r.get("failures")) + int(r.get("errors"))
+              if "BookmarkExportTest" in p:
+                  for tc in r.iter("testcase"): print("  ", tc.get("name"), "FAIL" if len(tc) else "ok")
+          print(f"GREEN importer package tests={t} failures={f}")
+          PY
+      - name: Mutations
+        if: always()
+        run: python3 scripts/probe6/mutate.py
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
